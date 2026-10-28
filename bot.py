@@ -1775,7 +1775,7 @@ def main():
             _bot_username = username
             print(f"✅  Online     @{username}")
             print(f"💳  UPI Gateway {gateway.base_url}")
-            print(f"📁  Database   {'MongoDB' if database.use_mongo else 'SQLite'}")
+            print(f"📁  Database   MongoDB ({database.MONGO_DB_NAME})")
             print(f"👑  Owner      {OWNER_ID}")
             print(f"🛡️  Admins     {', '.join(str(a) for a in ADMIN_IDS)}")
         else:

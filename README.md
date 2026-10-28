@@ -17,9 +17,9 @@ A high-performance, enterprise-grade Telegram bot designed to fetch, auto-decryp
 - Live API status checks (`PENDING`, `SUCCESS`) on button tap.
 - 12-digit UTR replay attack protection to prevent double crediting.
 
-### 🗄️ Hybrid Database Persistence
-- **Cloud Scaling**: Native support for **MongoDB Atlas** (`MONGO_URI`).
-- **Resilient Fallback**: Automatic local ACID-compliant **SQLite** database (`bot_database.db`).
+### 🗄️ Native MongoDB Atlas Persistence
+- **Cloud Scaling**: 100% native support for **MongoDB Atlas** (`MONGO_URI`).
+- Automatic indexes on `user_id`, unique `claimed_utrs`, and transaction timelines.
 - Tracks users, credits, lifetime VIP memberships, and verified transaction history.
 
 ### 🎨 Modern Typography & Telegram Bot API UX
