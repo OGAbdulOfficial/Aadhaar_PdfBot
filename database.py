@@ -78,24 +78,38 @@ init_db()
 
 # ─── USER MANAGEMENT (100% MONGODB) ────────────────────────
 
-def ensure_user(user_id, referrer_id=None):
+def ensure_user(user_id, referrer_id=None, first_name=None, last_name=None, username=None):
     uid = str(user_id)
     ref_id = str(referrer_id) if referrer_id and str(referrer_id) != uid else None
     now_str = datetime.now().isoformat()
     
+    update_data = {}
+    if first_name is not None:
+        update_data["first_name"] = first_name
+    if last_name is not None:
+        update_data["last_name"] = last_name
+    if username is not None:
+        update_data["username"] = username
+        
     existing = mongo_db.users.find_one({"_id": uid})
     if existing:
+        if update_data:
+            mongo_db.users.update_one({"_id": uid}, {"$set": update_data})
         return False
         
     user_doc = {
         "_id": uid,
         "user_id": uid,
+        "first_name": first_name or "",
+        "last_name": last_name or "",
+        "username": username or "",
         "credits": 1.0,
         "lifetime": False,
         "referred_by": ref_id,
         "referral_count": 0,
         "joined_at": now_str,
-        "banned": False
+        "banned": False,
+        "channel_verified": False
     }
     try:
         mongo_db.users.insert_one(user_doc)
@@ -108,6 +122,48 @@ def ensure_user(user_id, referrer_id=None):
     except Exception as e:
         logger.debug(f"User {uid} already exists or insert error: {e}")
         return False
+
+def mark_channel_verified(user_id) -> bool:
+    uid = str(user_id)
+    u = mongo_db.users.find_one({"_id": uid})
+    if u and not u.get("channel_verified"):
+        mongo_db.users.update_one({"_id": uid}, {"$set": {"channel_verified": True}})
+        mongo_db.bot_settings.update_one({"_id": "channel_stats"}, {"$inc": {"verified_joins": 1}}, upsert=True)
+        return True
+    return False
+
+def get_channel_verified_count() -> int:
+    doc = mongo_db.bot_settings.find_one({"_id": "channel_stats"})
+    return int(doc.get("verified_joins", 0)) if doc else 0
+
+def get_or_create_channel_link(bot_token: str, channel_username: str, default_link: str) -> str:
+    """
+    Retrieves or generates a dedicated tracked invite link for the channel via Telegram Bot API.
+    Saves in MongoDB so Telegram analytics can track exactly how many users joined through this bot.
+    """
+    try:
+        doc = mongo_db.bot_settings.find_one({"_id": "channel_invite_link"})
+        if doc and doc.get("link") and "t.me/+" in doc.get("link"):
+            return doc["link"]
+            
+        # Create tracked invite link via Telegram Bot API
+        import requests
+        url = f"https://api.telegram.org/bot{bot_token}/createChatInviteLink"
+        resp = requests.post(url, json={"chat_id": channel_username, "name": "Aadhaar PDF Bot Users"}, timeout=10)
+        data = resp.json()
+        if data.get("ok"):
+            link = data["result"]["invite_link"]
+            mongo_db.bot_settings.update_one(
+                {"_id": "channel_invite_link"},
+                {"$set": {"link": link, "created_at": datetime.now().isoformat()}},
+                upsert=True
+            )
+            logger.info(f"Created dedicated channel invite link: {link}")
+            return link
+    except Exception as e:
+        logger.error(f"Error getting/creating channel invite link: {e}")
+        
+    return default_link
 
 def get_user(user_id):
     uid = str(user_id)

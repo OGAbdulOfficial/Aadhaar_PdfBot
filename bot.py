@@ -504,10 +504,15 @@ def get_buy_keyboard():
         ]
     }
 
+def get_channel_invite_url():
+    """Retrieves or creates the bot's tracked invite link for the channel."""
+    return database.get_or_create_channel_link(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, CHANNEL_LINK)
+
 def get_join_keyboard():
+    invite_url = get_channel_invite_url()
     return {
         'inline_keyboard': [
-            [{'text': 'ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ',    'url': CHANNEL_LINK, 'style': 'primary'}],
+            [{'text': 'ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ',    'url': invite_url, 'style': 'primary'}],
             [{'text': 'ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ',   'callback_data': 'check_join', 'style': 'success'}],
         ]
     }
@@ -748,14 +753,18 @@ def handle_admin_command(chat_id, text):
         lifetime_count = sum(1 for u in data.values() if u.get('lifetime'))
         banned_count   = sum(1 for u in data.values() if u.get('banned'))
         total_credits  = sum(u.get('credits', 0) for u in data.values() if not u.get('lifetime'))
+        channel_joins  = database.get_channel_verified_count()
+        invite_link    = get_channel_invite_url()
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
             f"<b>📊 sᴛᴀᴛɪsᴛɪᴄs</b>\n\n"
-            f"👥  ᴜsᴇʀs     —  <b>{total}</b>\n"
-            f"♾️   ʟɪғᴇᴛɪᴍᴇ  —  <b>{lifetime_count}</b>\n"
-            f"🚫  ʙᴀɴɴᴇᴅ    —  <b>{banned_count}</b>\n"
-            f"💰  ᴄʀᴇᴅɪᴛs   —  <b>{total_credits}</b>\n\n"
+            f"👥  ᴛᴏᴛᴀʟ ᴜsᴇʀs      —  <b>{total}</b>\n"
+            f"📢  ᴄʜᴀɴɴᴇʟ ᴊᴏɪɴs    —  <b>{channel_joins}</b>\n"
+            f"♾️   ʟɪғᴇᴛɪᴍᴇ         —  <b>{lifetime_count}</b>\n"
+            f"🚫  ʙᴀɴɴᴇᴅ           —  <b>{banned_count}</b>\n"
+            f"💰  ᴄʀᴇᴅɪᴛs ᴘᴏᴏʟ     —  <b>{total_credits}</b>\n\n"
+            f"🔗  <b>ʙᴏᴛ ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b>\n<code>{invite_link}</code>\n"
             f"{DIVIDER}"
         )
         return True
@@ -798,12 +807,19 @@ def handle_admin_command(chat_id, text):
                 cr = get_credits(uid)
                 cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
                 banned_str = "🚫 Yes" if u.get('banned') else "✅ No"
+                fn = (u.get('first_name') or '').strip()
+                ln = (u.get('last_name') or '').strip()
+                full_name = f"{fn} {ln}".strip() or "N/A"
+                username = u.get('username')
+                uname_str = f"@{username}" if username else "N/A"
                 send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"🆔  <b>ɪᴅ</b>        —  <code>{uid}</code>\n"
-                    f"💰  <b>ᴄʀᴇᴅɪᴛs</b>   —  {cr_display}\n"
-                    f"👥  <b>ʀᴇғᴇʀʀᴀʟs</b> —  {u.get('referral_count', 0)}\n"
+                    f"👤  <b>ɴᴀᴍᴇ</b>      —  <b>{full_name}</b>\n"
+                    f"🔗  <b>ᴜsᴇʀɴᴀᴍᴇ</b>  —  <b>{uname_str}</b>\n"
+                    f"💰  <b>ᴄʀᴇᴅɪᴛs</b>   —  <b>{cr_display}</b>\n"
+                    f"👥  <b>ʀᴇғᴇʀʀᴀʟs</b> —  <b>{u.get('referral_count', 0)}</b>\n"
                     f"🚫  <b>ʙᴀɴɴᴇᴅ</b>    —  {banned_str}\n\n"
                     f"{DIVIDER}"
                 )
@@ -918,8 +934,15 @@ def _auto_check_payment_worker(chat_id, plan_key, amount, qr_msg_id, session_tok
         )
 
 # ============== CALLBACK HANDLER ==============
-def handle_callback(chat_id, callback_query_id, data, message_id=None):
+def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info=None):
     touch_session(chat_id)
+    if user_info:
+        ensure_user(
+            chat_id,
+            first_name=user_info.get('first_name'),
+            last_name=user_info.get('last_name'),
+            username=user_info.get('username')
+        )
 
     if data == 'admin_toggle_force_check' and is_admin(chat_id):
         global FORCE_CHECK
@@ -935,14 +958,18 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None):
         lifetime_count = sum(1 for u in data_all.values() if u.get('lifetime'))
         banned_count   = sum(1 for u in data_all.values() if u.get('banned'))
         total_credits  = sum(u.get('credits', 0) for u in data_all.values() if not u.get('lifetime'))
+        channel_joins  = database.get_channel_verified_count()
+        invite_link    = get_channel_invite_url()
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
             f"<b>📊 sᴛᴀᴛɪsᴛɪᴄs</b>\n\n"
-            f"👥  ᴛᴏᴛᴀʟ ᴜsᴇʀs    —  <b>{total}</b>\n"
-            f"♾️   ʟɪғᴇᴛɪᴍᴇ       —  <b>{lifetime_count}</b>\n"
-            f"🚫  ʙᴀɴɴᴇᴅ         —  <b>{banned_count}</b>\n"
-            f"💰  ᴄʀᴇᴅɪᴛs ᴘᴏᴏʟ   —  <b>{total_credits}</b>\n\n"
+            f"👥  ᴛᴏᴛᴀʟ ᴜsᴇʀs      —  <b>{total}</b>\n"
+            f"📢  ᴄʜᴀɴɴᴇʟ ᴊᴏɪɴs    —  <b>{channel_joins}</b>\n"
+            f"♾️   ʟɪғᴇᴛɪᴍᴇ         —  <b>{lifetime_count}</b>\n"
+            f"🚫  ʙᴀɴɴᴇᴅ           —  <b>{banned_count}</b>\n"
+            f"💰  ᴄʀᴇᴅɪᴛs ᴘᴏᴏʟ     —  <b>{total_credits}</b>\n\n"
+            f"🔗  <b>ʙᴏᴛ ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b>\n<code>{invite_link}</code>\n"
             f"{DIVIDER}"
         )
         return
@@ -951,12 +978,17 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None):
         answer_callback_query(callback_query_id)
         data_all = all_users()
         lines = [f"<b>👥 ᴜsᴇʀs ʟɪsᴛ ({len(data_all)})</b>\n{DIVIDER}"]
-        for uid, u in list(data_all.items())[:30]:
+        for uid, u in list(data_all.items())[:35]:
             cr = "♾️" if u.get('lifetime') else str(int(u.get('credits', 0)))
             b = " 🚫" if u.get('banned') else ""
-            lines.append(f"• <code>{uid}</code> — {cr} cr{b}")
-        if len(data_all) > 30:
-            lines.append(f"\n<i>…and {len(data_all) - 30} more users</i>")
+            fn = (u.get('first_name') or '').strip()
+            ln = (u.get('last_name') or '').strip()
+            full_name = f"{fn} {ln}".strip() or "No Name"
+            username = u.get('username')
+            uname_str = f"@{username}" if username else "No User"
+            lines.append(f"• <code>{uid}</code> | <b>{full_name}</b> ({uname_str}) — <b>{cr} cr</b>{b}")
+        if len(data_all) > 35:
+            lines.append(f"\n<i>…and {len(data_all) - 35} more users</i>")
         send_message(chat_id, "\n".join(lines))
         return
 
@@ -992,7 +1024,16 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None):
 
     if data == 'check_join':
         if not FORCE_CHECK or is_channel_member(chat_id):
-            ensure_user(chat_id)
+            database.mark_channel_verified(chat_id)
+            if user_info:
+                ensure_user(
+                    chat_id,
+                    first_name=user_info.get('first_name'),
+                    last_name=user_info.get('last_name'),
+                    username=user_info.get('username')
+                )
+            else:
+                ensure_user(chat_id)
             cr = get_credits(chat_id)
             cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
             send_message(
@@ -1207,9 +1248,15 @@ _KB_ACTIONS = {
     'referral':       'referral',
 }
 
-def handle_message(chat_id, message_text, message_id=None):
+def handle_message(chat_id, message_text, message_id=None, user_info=None):
     logger.info(f"Msg [{chat_id}]: {message_text[:60]}")
-    ensure_user(chat_id)
+    user_info = user_info or {}
+    ensure_user(
+        chat_id,
+        first_name=user_info.get('first_name'),
+        last_name=user_info.get('last_name'),
+        username=user_info.get('username')
+    )
 
     if ban_gate(chat_id):
         return
@@ -1806,13 +1853,15 @@ def main():
                     cqid = cq['id']
                     data = cq.get('data', '')
                     mid  = cq.get('message', {}).get('message_id')
-                    handle_callback(cid, cqid, data, message_id=mid)
+                    u    = cq.get('from', {})
+                    handle_callback(cid, cqid, data, message_id=mid, user_info=u)
 
                 elif 'message' in update:
                     msg  = update['message']
                     cid  = msg['chat']['id']
                     mid  = msg.get('message_id')
                     text = msg.get('text', '').strip()
+                    u    = msg.get('from', {})
                     if not text:
                         continue
 
@@ -1837,7 +1886,13 @@ def main():
                             )
                             continue
 
-                        is_new = ensure_user(cid, referrer_id)
+                        is_new = ensure_user(
+                            cid,
+                            referrer_id,
+                            first_name=u.get('first_name'),
+                            last_name=u.get('last_name'),
+                            username=u.get('username')
+                        )
                         clear_session(cid)
                         set_message_reaction(cid, message_id=mid, emoji="⚡")
                         cr = get_credits(cid)
@@ -1857,7 +1912,7 @@ def main():
                             reply_markup=get_main_keyboard()
                         )
                     else:
-                        handle_message(cid, text, message_id=mid)
+                        handle_message(cid, text, message_id=mid, user_info=u)
 
             time.sleep(0.5)
 
