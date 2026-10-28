@@ -19,6 +19,7 @@ import PyPDF2
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import emoji
+from typing import Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -337,7 +338,10 @@ def _cleanup_sessions():
             expired = []
             with _sessions_lock:
                 for cid, s in list(user_sessions.items()):
-                    if s.get('step', 'main') != 'main':
+                    step = s.get('step', 'main')
+                    if step != 'main':
+                        if step == 'awaiting_utr':
+                            continue
                         idle = time.time() - s.get('last_activity', time.time())
                         if idle > SESSION_TIMEOUT:
                             user_sessions[cid] = {'step': 'main', 'data': {}, 'last_activity': time.time()}
@@ -427,6 +431,18 @@ def set_message_reaction(chat_id, message_id=None, emoji="⚡"):
         get_telegram_session().post(url, json=payload, timeout=5)
     except Exception as e:
         logger.debug(f"Reaction error: {e}")
+
+def delete_message(chat_id, message_id):
+    """Deletes a message from chat via Telegram Bot API"""
+    if not message_id:
+        return False
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteMessage"
+    try:
+        resp = get_telegram_session().post(url, json={"chat_id": chat_id, "message_id": message_id}, timeout=5)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.debug(f"Error deleting message {message_id}: {e}")
+        return False
 
 def send_photo(chat_id, photo_bytes, caption=None, reply_markup=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
@@ -818,8 +834,91 @@ def handle_admin_command(chat_id, text):
 
     return False
 
+# ============== UPI PAYMENT WATCHER & VERIFIER ==============
+def check_new_payment_for_session(amount: float, ignored_utr: Optional[str] = None) -> Tuple[bool, Optional[str], str]:
+    """
+    Checks if a valid, unredeemed payment has arrived for the specified amount.
+    Returns (is_valid_new_payment, utr, display_status).
+    """
+    is_paid, pay_data = gateway.check_recent_payment(amount)
+    if not is_paid or not pay_data:
+        return False, None, "PENDING"
+        
+    utr = str(pay_data.get('utr', '')).strip()
+    if not utr:
+        return False, None, "PENDING"
+        
+    # If the UTR matches the ignored UTR (cached before session creation) or is already claimed:
+    if (ignored_utr and utr == ignored_utr) or is_utr_claimed(utr):
+        return False, utr, "PENDING"
+        
+    return True, utr, "SUCCESS"
+
+def _auto_check_payment_worker(chat_id, plan_key, amount, qr_msg_id, session_token, ignored_utr, expires_at):
+    logger.info(f"Payment auto-checker started for chat {chat_id}, plan {plan_key}, amount ₹{amount}")
+    plan = PLANS.get(plan_key, PLANS['100'])
+    poll_interval = 4
+    
+    while time.time() < expires_at:
+        time.sleep(poll_interval)
+        
+        sess = get_session(chat_id)
+        if sess.get('step') != 'awaiting_utr':
+            return
+        sess_data = sess.get('data', {})
+        if sess_data.get('session_token') != session_token:
+            return
+            
+        try:
+            is_valid, utr, status = check_new_payment_for_session(amount, ignored_utr)
+            if is_valid and utr:
+                logger.info(f"Auto-detected payment for chat {chat_id}: UTR={utr}, Amount={amount}")
+                success = record_successful_payment(chat_id, utr, amount, plan['credits'], plan['lifetime'])
+                if success:
+                    clear_session(chat_id)
+                    # Auto-delete the checkout / QR code post!
+                    if qr_msg_id:
+                        delete_message(chat_id, qr_msg_id)
+                        
+                    cr = get_credits(chat_id)
+                    cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ" if cr == float('inf') else f"{int(cr)} Credits"
+                    
+                    success_text = (
+                        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                        f"<b>🎉 ᴘᴀʏᴍᴇɴᴛ ᴅᴇᴛᴇᴄᴛᴇᴅ & ᴠᴇʀɪғɪᴇᴅ!</b>\n\n"
+                        f"✅  <b>ᴠᴇʀɪғɪᴇᴅ ᴜᴛʀ</b>   ·  <code>{utr}</code>\n"
+                        f"💵  <b>ᴀᴍᴏᴜɴᴛ ᴘᴀɪᴅ</b>    ·  <b>₹{amount}</b>\n"
+                        f"🎁  <b>ᴄʀᴇᴅɪᴛs ᴀᴅᴅᴇᴅ</b>  ·  <b>+{plan['credits']} Credits</b>\n"
+                        f"📊  <b>ᴀᴘɪ sᴛᴀᴛᴜs</b>     ·  <code>SUCCESS</code>\n\n"
+                        f"{DIVIDER}\n"
+                        f"💰  <b>ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ</b>  ·  <b>{cr_display}</b>\n\n"
+                        f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>"
+                    )
+                    sent_resp = send_message(chat_id, success_text, reply_markup=get_main_keyboard())
+                    sent_mid = sent_resp.get('result', {}).get('message_id') if (sent_resp and isinstance(sent_resp, dict)) else None
+                    if sent_mid:
+                        set_message_reaction(chat_id, message_id=sent_mid, emoji="🎉")
+                    return
+        except Exception as e:
+            logger.error(f"Error in auto-check worker: {e}")
+            
+    # Check if session expired without payment
+    sess = get_session(chat_id)
+    if sess.get('step') == 'awaiting_utr' and sess.get('data', {}).get('session_token') == session_token:
+        clear_session(chat_id)
+        if qr_msg_id:
+            delete_message(chat_id, qr_msg_id)
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"<b>⏰ ᴘᴀʏᴍᴇɴᴛ sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ</b>\n\n"
+            f"⚠️  ᴛʜᴇ 10-ᴍɪɴᴜᴛᴇ ᴄʜᴇᴄᴋᴏᴜᴛ ᴡɪɴᴅᴏᴡ ʜᴀs ᴇxᴘɪʀᴇᴅ.\n"
+            f"💡  <i>ɪғ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴘᴀɪᴅ, sɪᴍᴘʟʏ sᴇɴᴅ ʏᴏᴜʀ 12-ᴅɪɢɪᴛ ᴜᴛʀ ʜᴇʀᴇ ᴀᴛ ᴀɴʏ ᴛɪᴍᴇ!</i>",
+            reply_markup=get_main_keyboard()
+        )
+
 # ============== CALLBACK HANDLER ==============
-def handle_callback(chat_id, callback_query_id, data):
+def handle_callback(chat_id, callback_query_id, data, message_id=None):
     touch_session(chat_id)
 
     if data == 'admin_toggle_force_check' and is_admin(chat_id):
@@ -920,6 +1019,12 @@ def handle_callback(chat_id, callback_query_id, data):
         return
 
     if data == 'cancel':
+        s = get_session(chat_id)
+        qr_msg_id = s.get('data', {}).get('qr_msg_id')
+        if qr_msg_id:
+            delete_message(chat_id, qr_msg_id)
+        if message_id and message_id != qr_msg_id:
+            delete_message(chat_id, message_id)
         clear_session(chat_id)
         answer_callback_query(callback_query_id, "Cancelled")
         send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>❌  sᴇssɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.</i>", reply_markup=get_main_keyboard())
@@ -949,29 +1054,54 @@ def handle_callback(chat_id, callback_query_id, data):
         answer_callback_query(callback_query_id, f"ɢᴇɴᴇʀᴀᴛɪɴɢ ᴜᴘɪ ᴄʜᴇᴄᴋᴏᴜᴛ ғᴏʀ {plan['price']}...")
         amount = plan['amount']
         
+        # Check current cached UTR on gateway to ignore (prevent old payment collision)
+        cached_paid, cached_data = gateway.check_recent_payment(amount)
+        ignored_utr = str(cached_data.get('utr', '')).strip() if (cached_paid and cached_data) else None
+        
         is_ok, pay_meta = gateway.generate_payment(amount)
-        checkout_page = pay_meta.get('checkout_page', f"{gateway.base_url}/pay/{amount}")
         upi_link = pay_meta.get('upi_link', '')
         qr_bytes = gateway.generate_qr_bytes(upi_link)
         
-        set_session(chat_id, 'awaiting_utr', {'plan_key': plan_key, 'amount': amount})
+        now = time.time()
+        expires_at = now + 600  # 10 minute validity
+        session_token = str(uuid.uuid4())
         
         caption = (
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
             f"<b>🛒 ᴜᴘɪ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴄʜᴇᴄᴋᴏᴜᴛ</b>\n\n"
-            f"💎  <b>ᴘʟᴀɴ</b>    ·  {plan['label']}\n"
-            f"💵  <b>ᴀᴍᴏᴜɴᴛ</b>  ·  <b>{plan['price']}</b>\n"
-            f"🏛️  <b>ᴘᴀʏᴇᴇ</b>   ·  <b>{pay_meta.get('payee_name', 'Faisal Abdul Aziz Ansari')}</b>\n"
-            f"📱  <b>ᴜᴘɪ ɪᴅ</b>  ·  <code>{pay_meta.get('payee_vpa', 'faisal786786@fam')}</code>\n\n"
+            f"💎  <b>ᴘʟᴀɴ</b>       ·  {plan['label']}\n"
+            f"💵  <b>ᴀᴍᴏᴜɴᴛ</b>     ·  <b>{plan['price']}</b>\n"
+            f"🏛️  <b>ᴘᴀʏᴇᴇ</b>      ·  <b>{pay_meta.get('payee_name', 'Faisal Abdul Aziz Ansari')}</b>\n"
+            f"📱  <b>ᴜᴘɪ ɪᴅ</b>     ·  <code>{pay_meta.get('payee_vpa', 'faisal786786@fam')}</code>\n"
+            f"⏳  <b>ᴠᴀʟɪᴅɪᴛʏ</b>   ·  <b>10:00 ᴍɪɴᴜᴛᴇs</b> <i>(ᴀᴜᴛᴏ-ᴄʜᴇᴄᴋɪɴɢ 🔄)</i>\n\n"
             f"{DIVIDER}\n"
             f"<b>ʜᴏᴡ ᴛᴏ ᴘᴀʏ:</b>\n"
-            f"1️⃣ sᴄᴀɴ ᴛʜᴇ ǫʀ ᴄᴏᴅᴇ ᴀʙᴏᴠᴇ ғʀᴏᴍ ᴀɴʏ ᴜᴘɪ ᴀᴘᴘ (ɢᴘᴀʏ/ᴘʜᴏɴᴇᴘᴇ/ᴘᴀʏᴛᴍ).\n"
-            f"2️⃣ ᴘᴀʏ ᴛʜᴇ ᴇxᴀᴄᴛ ᴀᴍᴏᴜɴᴛ <b>{plan['price']}</b>.\n"
-            f"3️⃣ ᴛᴀᴘ <b>ᴄʜᴇᴄᴋ sᴛᴀᴛᴜs</b> ʙᴇʟᴏᴡ ᴏʀ sɪᴍᴘʟʏ ʀᴇᴘʟʏ ᴡɪᴛʜ ʏᴏᴜʀ 12-ᴅɪɢɪᴛ ᴜᴛʀ!"
+            f"1️⃣ sᴄᴀɴ ǫʀ ᴄᴏᴅᴇ ᴀʙᴏᴠᴇ ғʀᴏᴍ ɢᴘᴀʏ, ᴘʜᴏɴᴇᴘᴇ, ᴘᴀʏᴛᴍ ᴏʀ ᴄʀᴇᴅ.\n"
+            f"2️⃣ ᴘᴀʏ ᴇxᴀᴄᴛʟʏ <b>{plan['price']}</b>.\n"
+            f"3️⃣ <b>ᴀᴜᴛᴏ-ᴅᴇᴛᴇᴄᴛ:</b> ᴏɴᴄᴇ ᴘᴀɪᴅ, ᴛʜɪs ᴍᴇssᴀɢᴇ ᴀᴜᴛᴏ-ᴜᴘᴅᴀᴛᴇs ɪɴsᴛᴀɴᴛʟʏ!\n"
+            f"4️⃣ ᴏʀ ᴛᴀᴘ <b>ᴄʜᴇᴄᴋ sᴛᴀᴛᴜs</b> ʙᴇʟᴏᴡ ᴛᴏ ᴠᴇʀɪғʏ ᴍᴀɴᴜᴀʟʟʏ."
         )
         
         pay_kb = get_payment_keyboard(plan_key)
-        send_photo(chat_id, qr_bytes, caption=caption, reply_markup=pay_kb)
+        res = send_photo(chat_id, qr_bytes, caption=caption, reply_markup=pay_kb)
+        qr_msg_id = res.get('result', {}).get('message_id') if (res and isinstance(res, dict)) else None
+        
+        set_session(chat_id, 'awaiting_utr', {
+            'plan_key': plan_key,
+            'amount': amount,
+            'qr_msg_id': qr_msg_id,
+            'session_token': session_token,
+            'ignored_utr': ignored_utr,
+            'expires_at': expires_at,
+            'created_at': now
+        })
+        
+        # Start background auto-check watcher
+        threading.Thread(
+            target=_auto_check_payment_worker,
+            args=(chat_id, plan_key, amount, qr_msg_id, session_token, ignored_utr, expires_at),
+            daemon=True
+        ).start()
         return
 
     # ── CHECK PAYMENT STATUS CALLBACK ────────────────────
@@ -980,46 +1110,56 @@ def handle_callback(chat_id, callback_query_id, data):
         plan = PLANS.get(plan_key, PLANS['100'])
         amount = plan['amount']
         
-        is_paid, pay_data = gateway.check_recent_payment(amount)
-        api_status = str(pay_data.get('status', 'PENDING')).upper()
+        sess = get_session(chat_id)
+        sess_data = sess.get('data', {}) if sess.get('step') == 'awaiting_utr' else {}
+        qr_msg_id = sess_data.get('qr_msg_id')
+        ignored_utr = sess_data.get('ignored_utr')
         
-        answer_callback_query(callback_query_id, f"sᴛᴀᴛᴜs: {api_status}")
+        is_valid, utr, status = check_new_payment_for_session(amount, ignored_utr)
         
-        if is_paid:
-            utr = str(pay_data.get('utr', ''))
-            if utr and not is_utr_claimed(utr):
-                record_successful_payment(chat_id, utr, amount, plan['credits'], plan['lifetime'])
-                set_message_reaction(chat_id, message_id=None, emoji="🎉")
+        if is_valid and utr:
+            answer_callback_query(callback_query_id, "sᴛᴀᴛᴜs: sᴜᴄᴄᴇss (🎉 ᴘᴀʏᴍᴇɴᴛ ᴠᴇʀɪғɪᴇᴅ!)")
+            success = record_successful_payment(chat_id, utr, amount, plan['credits'], plan['lifetime'])
+            if success:
+                clear_session(chat_id)
+                if qr_msg_id:
+                    delete_message(chat_id, qr_msg_id)
+                if message_id and message_id != qr_msg_id:
+                    delete_message(chat_id, message_id)
+                    
                 cr = get_credits(chat_id)
                 cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ" if cr == float('inf') else f"{int(cr)} Credits"
-                clear_session(chat_id)
-                send_message(
-                    chat_id,
+                
+                success_text = (
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>🎉 ᴘᴀʏᴍᴇɴᴛ ᴅᴇᴛᴇᴄᴛᴇᴅ & ᴠᴇʀɪғɪᴇᴅ!</b>\n\n"
-                    f"✅  ᴠᴇʀɪғɪᴇᴅ ᴜᴛʀ   ·  <code>{utr}</code>\n"
-                    f"💵  ᴀᴍᴏᴜɴᴛ ᴘᴀɪᴅ    ·  <b>₹{amount}</b>\n"
-                    f"🎁  ᴄʀᴇᴅɪᴛs ᴀᴅᴅᴇᴅ  ·  <b>+{plan['credits']}</b>\n"
-                    f"📊  ᴀᴘɪ sᴛᴀᴛᴜs     ·  <code>{api_status}</code>\n\n"
+                    f"✅  <b>ᴠᴇʀɪғɪᴇᴅ ᴜᴛʀ</b>   ·  <code>{utr}</code>\n"
+                    f"💵  <b>ᴀᴍᴏᴜɴᴛ ᴘᴀɪᴅ</b>    ·  <b>₹{amount}</b>\n"
+                    f"🎁  <b>ᴄʀᴇᴅɪᴛs ᴀᴅᴅᴇᴅ</b>  ·  <b>+{plan['credits']} Credits</b>\n"
+                    f"📊  <b>ᴀᴘɪ sᴛᴀᴛᴜs</b>     ·  <code>SUCCESS</code>\n\n"
                     f"{DIVIDER}\n"
-                    f"💰  ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ  ·  <b>{cr_display}</b>\n\n"
-                    f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>",
-                    reply_markup=get_main_keyboard()
+                    f"💰  <b>ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ</b>  ·  <b>{cr_display}</b>\n\n"
+                    f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>"
                 )
+                sent_resp = send_message(chat_id, success_text, reply_markup=get_main_keyboard())
+                sent_mid = sent_resp.get('result', {}).get('message_id') if (sent_resp and isinstance(sent_resp, dict)) else None
+                if sent_mid:
+                    set_message_reaction(chat_id, message_id=sent_mid, emoji="🎉")
                 return
-
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>📊 ᴘᴀʏᴍᴇɴᴛ sᴛᴀᴛᴜs: <code>{api_status}</code></b>\n\n"
-            f"💵  <b>ᴇxᴘᴇᴄᴛᴇᴅ</b>  ·  <b>₹{amount}</b>\n"
-            f"⏳  <b>sᴛᴀᴛᴜs</b>    ·  <code>{api_status}</code>\n"
-            f"🔄  <b>ᴘᴀɪᴅ</b>      ·  <b>{'YES' if is_paid else 'NO'}</b>\n\n"
-            f"{DIVIDER}\n"
-            f"<i>💡 ɪғ ʏᴏᴜ ʜᴀᴠᴇ ᴀʟʀᴇᴀᴅʏ ᴘᴀɪᴅ ɪɴ ʏᴏᴜʀ ᴜᴘɪ ᴀᴘᴘ, ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴡɪᴛʜ ʏᴏᴜʀ <b>12-ᴅɪɢɪᴛ ᴜᴛʀ</b> ᴛᴏ ᴠᴇʀɪғʏ ɪɴsᴛᴀɴᴛʟʏ!</i>",
-            reply_markup=get_payment_keyboard(plan_key)
-        )
-        return
+        else:
+            answer_callback_query(callback_query_id, "sᴛᴀᴛᴜs: ᴘᴇɴᴅɪɴɢ (⏳ ɴᴏᴛ ʀᴇᴄᴇɪᴠᴇᴅ ʏᴇᴛ)")
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>📊 ᴘᴀʏᴍᴇɴᴛ sᴛᴀᴛᴜs: <code>PENDING</code></b>\n\n"
+                f"💵  <b>ᴇxᴘᴇᴄᴛᴇᴅ</b>  ·  <b>₹{amount}</b>\n"
+                f"⏳  <b>sᴛᴀᴛᴜs</b>    ·  <code>PENDING</code>\n"
+                f"🔄  <b>ᴘᴀɪᴅ</b>      ·  <b>NO</b>\n\n"
+                f"{DIVIDER}\n"
+                f"<i>💡 ɪғ ʏᴏᴜ ʜᴀᴠᴇ ᴀʟʀᴇᴀᴅʏ ᴘᴀɪᴅ ɪɴ ʏᴏᴜʀ ᴜᴘɪ ᴀᴘᴘ, ᴘʟᴇᴀsᴇ ʀᴇᴘʟʏ ᴡɪᴛʜ ʏᴏᴜʀ <b>12-ᴅɪɢɪᴛ ᴜᴛʀ</b> ᴛᴏ ᴠᴇʀɪғʏ ɪɴsᴛᴀɴᴛʟʏ!</i>",
+                reply_markup=get_payment_keyboard(plan_key)
+            )
+            return
 
     # ── Search flows gates ───────────────────────────────
     if data in ('search_mobile', 'search_aadhaar', 'search_eid'):
@@ -1084,8 +1224,21 @@ def handle_message(chat_id, message_text, message_id=None):
     clean_text = re.sub(r'[^\w\s]', '', clean_text).strip()
     clean_text = ' '.join(clean_text.split())
 
+    if clean_text in ('cancel', 'back'):
+        s = get_session(chat_id)
+        qr_mid = s.get('data', {}).get('qr_msg_id')
+        if qr_mid:
+            delete_message(chat_id, qr_mid)
+        clear_session(chat_id)
+        send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>❌  sᴇssɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.</i>", reply_markup=get_main_keyboard())
+        return
+
     action = _KB_ACTIONS.get(clean_text)
     if action:
+        s = get_session(chat_id)
+        qr_mid = s.get('data', {}).get('qr_msg_id')
+        if qr_mid:
+            delete_message(chat_id, qr_mid)
         if action in ('search_mobile', 'search_aadhaar', 'search_eid'):
             if not channel_gate(chat_id) or not credit_gate(chat_id):
                 return
@@ -1156,22 +1309,29 @@ def handle_message(chat_id, message_text, message_id=None):
                     chat_id, utr, verified_amount, matched_credits, matched_lifetime
                 )
                 if success:
-                    set_message_reaction(chat_id, message_id=message_id, emoji="🎉")
+                    qr_msg_id = d.get('qr_msg_id')
+                    if qr_msg_id:
+                        delete_message(chat_id, qr_msg_id)
+                    clear_session(chat_id)
                     cr = get_credits(chat_id)
                     cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ" if cr == float('inf') else f"{int(cr)} Credits"
-                    clear_session(chat_id)
-                    send_message(
-                        chat_id,
+                    success_text = (
                         f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                        f"<b>🎉 ᴘᴀʏᴍᴇɴᴛ ᴄᴏɴғɪʀᴍᴇᴅ & ᴠᴇʀɪғɪᴇᴅ!</b>\n\n"
-                        f"✅  ᴠᴇʀɪғɪᴇᴅ ᴜᴛʀ   ·  <code>{utr}</code>\n"
-                        f"💵  ᴀᴍᴏᴜɴᴛ ᴘᴀɪᴅ    ·  <b>₹{verified_amount:.0f}</b>\n"
-                        f"🎁  ᴄʀᴇᴅɪᴛs ᴀᴅᴅᴇᴅ  ·  <b>+{matched_credits} Credits</b>\n\n"
+                        f"<b>🎉 ᴘᴀʏᴍᴇɴᴛ ᴅᴇᴛᴇᴄᴛᴇᴅ & ᴠᴇʀɪғɪᴇᴅ!</b>\n\n"
+                        f"✅  <b>ᴠᴇʀɪғɪᴇᴅ ᴜᴛʀ</b>   ·  <code>{utr}</code>\n"
+                        f"💵  <b>ᴀᴍᴏᴜɴᴛ ᴘᴀɪᴅ</b>    ·  <b>₹{verified_amount:.0f}</b>\n"
+                        f"🎁  <b>ᴄʀᴇᴅɪᴛs ᴀᴅᴅᴇᴅ</b>  ·  <b>+{matched_credits} Credits</b>\n"
+                        f"📊  <b>ᴀᴘɪ sᴛᴀᴛᴜs</b>     ·  <code>SUCCESS</code>\n\n"
                         f"{DIVIDER}\n"
-                        f"💰  ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ  ·  <b>{cr_display}</b>\n\n"
-                        f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>",
-                        reply_markup=get_main_keyboard()
+                        f"💰  <b>ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ</b>  ·  <b>{cr_display}</b>\n\n"
+                        f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>"
                     )
+                    sent_resp = send_message(chat_id, success_text, reply_markup=get_main_keyboard())
+                    sent_mid = sent_resp.get('result', {}).get('message_id') if (sent_resp and isinstance(sent_resp, dict)) else None
+                    if sent_mid:
+                        set_message_reaction(chat_id, message_id=sent_mid, emoji="🎉")
+                    if message_id:
+                        set_message_reaction(chat_id, message_id=message_id, emoji="🎉")
                     return
                 else:
                     send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n⚠️ Payment already credited for this UTR.")
@@ -1645,7 +1805,8 @@ def main():
                     cid  = cq['message']['chat']['id']
                     cqid = cq['id']
                     data = cq.get('data', '')
-                    handle_callback(cid, cqid, data)
+                    mid  = cq.get('message', {}).get('message_id')
+                    handle_callback(cid, cqid, data, message_id=mid)
 
                 elif 'message' in update:
                     msg  = update['message']
