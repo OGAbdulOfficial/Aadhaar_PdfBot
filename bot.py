@@ -106,8 +106,9 @@ PROXY_URL = os.environ.get("PROXY_URL", "").strip()
 
 def create_session(use_proxy=False, proxy_string=None):
     session = requests.Session()
+    # Optimized pool with fast retry (1 retry) for instant throughput
     session.mount('https://', requests.adapters.HTTPAdapter(
-        pool_connections=10, pool_maxsize=20, max_retries=3, pool_block=False
+        pool_connections=30, pool_maxsize=60, max_retries=1, pool_block=False
     ))
     if use_proxy and proxy_string:
         parsed = urlparse(proxy_string)
@@ -124,6 +125,8 @@ def create_session(use_proxy=False, proxy_string=None):
     return session
 
 telegram_session = None
+polling_session = None
+
 def get_telegram_session():
     global telegram_session
     if telegram_session is None:
@@ -132,6 +135,15 @@ def get_telegram_session():
         else:
             telegram_session = create_session(False)
     return telegram_session
+
+def get_polling_session():
+    global polling_session
+    if polling_session is None:
+        if PROXY_URL:
+            polling_session = create_session(True, PROXY_URL)
+        else:
+            polling_session = create_session(False)
+    return polling_session
 
 # UIDAI API Instance
 bot = bot_api
@@ -363,16 +375,32 @@ def _cleanup_sessions():
             logger.error(f"Session cleanup error: {e}")
 
 # ============== CHANNEL MEMBERSHIP ==============
+# Channel membership in-memory cache to avoid repeated Telegram API round-trips
+_channel_member_cache = {}
+_cm_lock = threading.Lock()
+CM_CACHE_TTL = 180.0  # 3 minutes cache for channel members
+
 def is_channel_member(user_id):
     if not FORCE_CHECK:
         return True
+    uid = str(user_id)
+    with _cm_lock:
+        item = _channel_member_cache.get(uid)
+        if item and (time.time() - item['t']) < CM_CACHE_TTL:
+            return item['is_member']
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
     params = {'chat_id': CHANNEL_USERNAME, 'user_id': user_id}
     try:
-        response = get_telegram_session().get(url, params=params, timeout=10).json()
+        response = get_telegram_session().get(url, params=params, timeout=5).json()
         if response.get('ok'):
             status = response.get('result', {}).get('status', '')
-            return status in ['member', 'administrator', 'creator']
+            is_mem = status in ['member', 'administrator', 'creator']
+            with _cm_lock:
+                _channel_member_cache[uid] = {'t': time.time(), 'is_member': is_mem}
+            return is_mem
+        with _cm_lock:
+            _channel_member_cache[uid] = {'t': time.time(), 'is_member': False}
         return False
     except Exception as e:
         logger.error(f"Error checking channel membership: {e}")
@@ -935,6 +963,9 @@ def _auto_check_payment_worker(chat_id, plan_key, amount, qr_msg_id, session_tok
 
 # ============== CALLBACK HANDLER ==============
 def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info=None):
+    # Answer immediately to stop the button loading spinner right away
+    if not data.startswith('buy_'):
+        answer_callback_query(callback_query_id)
     touch_session(chat_id)
     if user_info:
         ensure_user(
@@ -947,7 +978,6 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
     if data == 'admin_toggle_force_check' and is_admin(chat_id):
         global FORCE_CHECK
         FORCE_CHECK = not FORCE_CHECK
-        answer_callback_query(callback_query_id, f"Force check: {'ON' if FORCE_CHECK else 'OFF'}")
         show_admin_panel(chat_id)
         return
 
@@ -1023,6 +1053,9 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
         return
 
     if data == 'check_join':
+        # Clear member cache so Telegram is queried freshly for this check
+        with _cm_lock:
+            _channel_member_cache.pop(str(chat_id), None)
         if not FORCE_CHECK or is_channel_member(chat_id):
             database.mark_channel_verified(chat_id)
             if user_info:
@@ -1790,11 +1823,12 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
 # ============== GET UPDATES ==============
 def get_updates(offset=None):
     url    = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
-    params = {'timeout': 25, 'allowed_updates': ['message', 'callback_query']}
+    # Fast 10s long-polling for instant update delivery without long network hangs
+    params = {'timeout': 10, 'allowed_updates': ['message', 'callback_query']}
     if offset:
         params['offset'] = offset
     try:
-        response = get_telegram_session().get(url, params=params, timeout=30)
+        response = get_polling_session().get(url, params=params, timeout=15)
         result   = response.json()
         if result.get('ok'):
             return result.get('result', [])
@@ -1804,34 +1838,6 @@ def get_updates(offset=None):
         return []
 
 # ============== MAIN ==============
-def main():
-    print("━" * 55)
-    print(f"  {BOT_NAME}  —  Starting Up (v2.0 SmallCaps & UPI Enhanced)")
-    print("━" * 55)
-
-    if not TELEGRAM_BOT_TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN is not set in .env")
-        return
-
-    try:
-        r = get_telegram_session().get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe", timeout=10)
-        bot_info = r.json()
-        if bot_info.get('ok'):
-            username = bot_info['result']['username']
-            global _bot_username
-            _bot_username = username
-            print(f"✅  Online     @{username}")
-            print(f"💳  UPI Gateway {gateway.base_url}")
-            print(f"📁  Database   MongoDB ({database.MONGO_DB_NAME})")
-            print(f"👑  Owner      {OWNER_ID}")
-            print(f"🛡️  Admins     {', '.join(str(a) for a in ADMIN_IDS)}")
-        else:
-            print(f"❌  Telegram Bot authentication failed: {bot_info}")
-            return
-    except Exception as e:
-        print(f"❌  Connection Error: {e}")
-        return
-
 def _safe_handle_callback(cid, cqid, data, mid, u):
     try:
         handle_callback(cid, cqid, data, message_id=mid, user_info=u)
@@ -1874,10 +1880,11 @@ def _safe_handle_start(cid, mid, text, u):
             username=u.get('username')
         )
         clear_session(cid)
-        set_message_reaction(cid, message_id=mid, emoji="⚡")
         cr = get_credits(cid)
         cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
         bonus_line = "\n🎁  ʙᴏɴᴜs        ·  <b>+1 credit for joining!</b>" if is_new else ""
+        
+        # Send welcome message immediately!
         send_message(
             cid,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
@@ -1891,8 +1898,40 @@ def _safe_handle_start(cid, mid, text, u):
             f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ ʙᴇɢɪɴ.</i>",
             reply_markup=get_main_keyboard()
         )
+        try:
+            set_message_reaction(cid, message_id=mid, emoji="⚡")
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Error handling start for chat {cid}: {e}", exc_info=True)
+
+def main():
+    print("━" * 55)
+    print(f"  {BOT_NAME}  —  Starting Up (v2.0 SmallCaps & UPI Enhanced)")
+    print("━" * 55)
+
+    if not TELEGRAM_BOT_TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN is not set in .env")
+        return
+
+    try:
+        r = get_telegram_session().get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe", timeout=10)
+        bot_info = r.json()
+        if bot_info.get('ok'):
+            username = bot_info['result']['username']
+            global _bot_username
+            _bot_username = username
+            print(f"✅  Online     @{username}")
+            print(f"💳  UPI Gateway {gateway.base_url}")
+            print(f"📁  Database   MongoDB ({database.MONGO_DB_NAME})")
+            print(f"👑  Owner      {OWNER_ID}")
+            print(f"🛡️  Admins     {', '.join(str(a) for a in ADMIN_IDS)}")
+        else:
+            print(f"❌  Telegram Bot authentication failed: {bot_info}")
+            return
+    except Exception as e:
+        print(f"❌  Connection Error: {e}")
+        return
 
     t = threading.Thread(target=_cleanup_sessions, daemon=True)
     t.start()
@@ -1935,14 +1974,16 @@ def _safe_handle_start(cid, mid, text, u):
                     else:
                         worker_pool.submit(_safe_handle_message, cid, text, mid, u)
 
-            time.sleep(0.5)
+            # If updates were received and processed, poll immediately; else yield briefly
+            if not updates:
+                time.sleep(0.05)
 
         except KeyboardInterrupt:
             print("\n🛑 Stopped by User")
             break
         except Exception as e:
             logger.error(f"Main loop error: {e}")
-            time.sleep(3)
+            time.sleep(1)
 
 if __name__ == "__main__":
     main()

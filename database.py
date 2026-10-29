@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import time
+import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -17,6 +19,29 @@ LEGACY_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.js
 # Database client instance
 mongo_client: MongoClient = None
 mongo_db = None
+
+# ─── IN-MEMORY USER CACHE (ULTRA-FAST LATENCY) ───────────────
+_user_cache = {}
+_cache_lock = threading.Lock()
+USER_CACHE_TTL = 30.0  # Cache duration: 30 seconds
+
+def _cache_get(uid: str):
+    with _cache_lock:
+        item = _user_cache.get(uid)
+        if item and (time.time() - item['t']) < USER_CACHE_TTL:
+            return dict(item['doc'])
+    return None
+
+def _cache_set(uid: str, doc: dict):
+    with _cache_lock:
+        if doc is not None:
+            _user_cache[uid] = {'t': time.time(), 'doc': dict(doc)}
+        else:
+            _user_cache.pop(uid, None)
+
+def _cache_invalidate(uid: str):
+    with _cache_lock:
+        _user_cache.pop(uid, None)
 
 def init_db():
     global mongo_client, mongo_db
@@ -91,10 +116,32 @@ def ensure_user(user_id, referrer_id=None, first_name=None, last_name=None, user
     if username is not None:
         update_data["username"] = username
         
+    cached = _cache_get(uid)
+    if cached:
+        # Check if anything actually changed
+        needs_update = False
+        for k, v in update_data.items():
+            if cached.get(k) != v:
+                needs_update = True
+                cached[k] = v
+        if needs_update:
+            try:
+                mongo_db.users.update_one({"_id": uid}, {"$set": update_data})
+                _cache_set(uid, cached)
+            except Exception as e:
+                logger.error(f"Error updating user in mongo: {e}")
+        return False
+
     existing = mongo_db.users.find_one({"_id": uid})
     if existing:
+        existing.pop("_id", None)
         if update_data:
-            mongo_db.users.update_one({"_id": uid}, {"$set": update_data})
+            existing.update(update_data)
+            try:
+                mongo_db.users.update_one({"_id": uid}, {"$set": update_data})
+            except Exception as e:
+                logger.error(f"Error updating user in mongo: {e}")
+        _cache_set(uid, existing)
         return False
         
     user_doc = {
@@ -113,11 +160,15 @@ def ensure_user(user_id, referrer_id=None, first_name=None, last_name=None, user
     }
     try:
         mongo_db.users.insert_one(user_doc)
+        doc_copy = dict(user_doc)
+        doc_copy.pop("_id", None)
+        _cache_set(uid, doc_copy)
         if ref_id:
             mongo_db.users.update_one(
                 {"_id": ref_id},
                 {"$inc": {"credits": 1.0, "referral_count": 1}}
             )
+            _cache_invalidate(ref_id)
         return True
     except Exception as e:
         logger.debug(f"User {uid} already exists or insert error: {e}")
@@ -125,10 +176,13 @@ def ensure_user(user_id, referrer_id=None, first_name=None, last_name=None, user
 
 def mark_channel_verified(user_id) -> bool:
     uid = str(user_id)
-    u = mongo_db.users.find_one({"_id": uid})
+    u = _cache_get(uid) or mongo_db.users.find_one({"_id": uid})
     if u and not u.get("channel_verified"):
         mongo_db.users.update_one({"_id": uid}, {"$set": {"channel_verified": True}})
         mongo_db.bot_settings.update_one({"_id": "channel_stats"}, {"$inc": {"verified_joins": 1}}, upsert=True)
+        if u:
+            u["channel_verified"] = True
+            _cache_set(uid, u)
         return True
     return False
 
@@ -167,10 +221,14 @@ def get_or_create_channel_link(bot_token: str, channel_username: str, default_li
 
 def get_user(user_id):
     uid = str(user_id)
+    cached = _cache_get(uid)
+    if cached is not None:
+        return cached
     doc = mongo_db.users.find_one({"_id": uid})
     if doc:
         doc.pop("_id", None)
-        return doc
+        _cache_set(uid, doc)
+        return dict(doc)
     return None
 
 def get_credits(user_id):
@@ -195,22 +253,33 @@ def add_credits(user_id, amount, make_lifetime=False):
         mongo_db.users.update_one({"_id": uid}, {"$set": {"lifetime": True}})
     else:
         mongo_db.users.update_one({"_id": uid}, {"$inc": {"credits": float(amount)}})
+    _cache_invalidate(uid)
 
 def deduct_credit(user_id):
     uid = str(user_id)
-    u = mongo_db.users.find_one({"_id": uid})
+    cached = _cache_get(uid)
+    if cached and cached.get('lifetime'):
+        return
+    u = cached or mongo_db.users.find_one({"_id": uid})
     if u and not u.get('lifetime'):
         new_credits = max(0.0, float(u.get('credits', 0)) - 1.0)
         mongo_db.users.update_one({"_id": uid}, {"$set": {"credits": new_credits}})
+        if cached:
+            cached['credits'] = new_credits
+            _cache_set(uid, cached)
+        else:
+            _cache_invalidate(uid)
 
 def ban_user(user_id):
     uid = str(user_id)
     ensure_user(uid)
     mongo_db.users.update_one({"_id": uid}, {"$set": {"banned": True}})
+    _cache_invalidate(uid)
 
 def unban_user(user_id):
     uid = str(user_id)
     mongo_db.users.update_one({"_id": uid}, {"$set": {"banned": False}})
+    _cache_invalidate(uid)
 
 def is_banned(user_id):
     u = get_user(user_id)
@@ -261,6 +330,7 @@ def record_successful_payment(user_id: str, utr: str, amount: float, credits_add
             mongo_db.users.update_one({"_id": uid}, {"$set": {"lifetime": True}})
         else:
             mongo_db.users.update_one({"_id": uid}, {"$inc": {"credits": float(credits_added)}})
+        _cache_invalidate(uid)
         logger.info(f"Recorded payment in MongoDB: User={uid}, UTR={clean_utr}, Amount=₹{amount}, Credits=+{credits_added}")
         return True
     except Exception as e:
