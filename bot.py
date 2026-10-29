@@ -1832,8 +1832,73 @@ def main():
         print(f"❌  Connection Error: {e}")
         return
 
+def _safe_handle_callback(cid, cqid, data, mid, u):
+    try:
+        handle_callback(cid, cqid, data, message_id=mid, user_info=u)
+    except Exception as e:
+        logger.error(f"Error handling callback for chat {cid}: {e}", exc_info=True)
+
+def _safe_handle_message(cid, text, mid, u):
+    try:
+        handle_message(cid, text, message_id=mid, user_info=u)
+    except Exception as e:
+        logger.error(f"Error handling message for chat {cid}: {e}", exc_info=True)
+
+def _safe_handle_start(cid, mid, text, u):
+    try:
+        parts = text.split()
+        referrer_id = None
+        if len(parts) > 1 and parts[1].startswith('ref_'):
+            try:
+                referrer_id = int(parts[1][4:])
+            except ValueError:
+                pass
+
+        if FORCE_CHECK and not is_channel_member(cid):
+            send_message(
+                cid,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>📢 ᴄʜᴀɴɴᴇʟ ʀᴇǫᴜɪʀᴇᴅ</b>\n\n"
+                f"🔒  ᴊᴏɪɴ <b>{CHANNEL_USERNAME}</b> ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ.\n\n"
+                f"{DIVIDER}\n"
+                f"<i>👇  ᴛᴀᴘ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴀғᴛᴇʀ ᴊᴏɪɴɪɴɢ.</i>",
+                reply_markup=get_join_keyboard()
+            )
+            return
+
+        is_new = ensure_user(
+            cid,
+            referrer_id,
+            first_name=u.get('first_name'),
+            last_name=u.get('last_name'),
+            username=u.get('username')
+        )
+        clear_session(cid)
+        set_message_reaction(cid, message_id=mid, emoji="⚡")
+        cr = get_credits(cid)
+        cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
+        bonus_line = "\n🎁  ʙᴏɴᴜs        ·  <b>+1 credit for joining!</b>" if is_new else ""
+        send_message(
+            cid,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
+            f"<b>🇮🇳 ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ — sᴛʀᴀɪɢʜᴛ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ</b>\n\n"
+            f"🏛️  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
+            f"📬  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
+            f"🔑  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ"
+            f"{bonus_line}\n\n"
+            f"{DIVIDER}\n"
+            f"💰  ᴄʀᴇᴅɪᴛs  ·  <b>{cr_display}</b>\n\n"
+            f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ ʙᴇɢɪɴ.</i>",
+            reply_markup=get_main_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Error handling start for chat {cid}: {e}", exc_info=True)
+
     t = threading.Thread(target=_cleanup_sessions, daemon=True)
     t.start()
+
+    # Multi-threaded worker pool so slow network calls (e.g. UIDAI timeouts) NEVER block polling!
+    worker_pool = ThreadPoolExecutor(max_workers=25, thread_name_prefix="tg_worker")
 
     print("━" * 55)
     print("  🟢 Running  —  Ready to accept users & payments")
@@ -1854,7 +1919,7 @@ def main():
                     data = cq.get('data', '')
                     mid  = cq.get('message', {}).get('message_id')
                     u    = cq.get('from', {})
-                    handle_callback(cid, cqid, data, message_id=mid, user_info=u)
+                    worker_pool.submit(_safe_handle_callback, cid, cqid, data, mid, u)
 
                 elif 'message' in update:
                     msg  = update['message']
@@ -1866,53 +1931,9 @@ def main():
                         continue
 
                     if text.startswith('/start'):
-                        parts = text.split()
-                        referrer_id = None
-                        if len(parts) > 1 and parts[1].startswith('ref_'):
-                            try:
-                                referrer_id = int(parts[1][4:])
-                            except ValueError:
-                                pass
-
-                        if FORCE_CHECK and not is_channel_member(cid):
-                            send_message(
-                                cid,
-                                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                                f"<b>📢 ᴄʜᴀɴɴᴇʟ ʀᴇǫᴜɪʀᴇᴅ</b>\n\n"
-                                f"🔒  ᴊᴏɪɴ <b>{CHANNEL_USERNAME}</b> ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ.\n\n"
-                                f"{DIVIDER}\n"
-                                f"<i>👇  ᴛᴀᴘ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴀғᴛᴇʀ ᴊᴏɪɴɪɴɢ.</i>",
-                                reply_markup=get_join_keyboard()
-                            )
-                            continue
-
-                        is_new = ensure_user(
-                            cid,
-                            referrer_id,
-                            first_name=u.get('first_name'),
-                            last_name=u.get('last_name'),
-                            username=u.get('username')
-                        )
-                        clear_session(cid)
-                        set_message_reaction(cid, message_id=mid, emoji="⚡")
-                        cr = get_credits(cid)
-                        cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
-                        bonus_line = "\n🎁  ʙᴏɴᴜs        ·  <b>+1 credit for joining!</b>" if is_new else ""
-                        send_message(
-                            cid,
-                            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
-                            f"<b>🇮🇳 ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ — sᴛʀᴀɪɢʜᴛ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ</b>\n\n"
-                            f"🏛️  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
-                            f"📬  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
-                            f"🔑  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ"
-                            f"{bonus_line}\n\n"
-                            f"{DIVIDER}\n"
-                            f"💰  ᴄʀᴇᴅɪᴛs  ·  <b>{cr_display}</b>\n\n"
-                            f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ ʙᴇɢɪɴ.</i>",
-                            reply_markup=get_main_keyboard()
-                        )
+                        worker_pool.submit(_safe_handle_start, cid, mid, text, u)
                     else:
-                        handle_message(cid, text, message_id=mid, user_info=u)
+                        worker_pool.submit(_safe_handle_message, cid, text, mid, u)
 
             time.sleep(0.5)
 

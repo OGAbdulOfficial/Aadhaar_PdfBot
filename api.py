@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 # ============== SESSION FACTORY ==============
 def get_uidai_session(use_proxy=False, proxy_string=None):
     session = requests.Session()
+    # Fast retry: only 1 retry on connection failure to prevent long blocking
     session.mount('https://', requests.adapters.HTTPAdapter(
-        pool_connections=5, pool_maxsize=10, max_retries=3, pool_block=False
+        pool_connections=10, pool_maxsize=20, max_retries=1, pool_block=False
     ))
     if use_proxy and proxy_string:
         parsed = urlparse(proxy_string)
@@ -113,7 +114,8 @@ class PDFPasswordCracker:
 # ============== AADHAAR BOT CLASS ==============
 class AadhaarBot:
     def __init__(self, proxy_url=None):
-        self.session = get_uidai_session(use_proxy=bool(proxy_url), proxy_string=proxy_url)
+        proxy = proxy_url or os.environ.get("PROXY_URL", "").strip() or None
+        self.session = get_uidai_session(use_proxy=bool(proxy), proxy_string=proxy)
         self.base_headers = {
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en_IN',
@@ -149,7 +151,7 @@ class AadhaarBot:
             logger.error(f"Error solving captcha: {e}")
             return None
 
-    def auto_send_eid_otp(self, user_id, mobile, name, max_retries=3):
+    def auto_send_eid_otp(self, user_id, mobile, name, max_retries=2):
         """
         Automatically gets UIDAI captcha, solves it via OCR, and requests EID OTP.
         Retries up to max_retries if UIDAI rejects the captcha.
@@ -159,8 +161,8 @@ class AadhaarBot:
         for attempt in range(1, max_retries + 1):
             img_bytes, c_txn, t_id = self.get_captcha(user_id)
             if not img_bytes:
-                last_error = "UIDAI captcha server unreachable"
-                continue
+                last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
+                break  # Don't keep hammering when UIDAI is unreachable
             code = self.solve_captcha(img_bytes)
             if not code or len(code) < 4:
                 continue
@@ -174,7 +176,7 @@ class AadhaarBot:
                 return False, None, None, None, None, last_error
         return False, None, None, None, None, last_error
 
-    def auto_send_aadhaar_otp(self, user_id, eid_number, max_retries=3):
+    def auto_send_aadhaar_otp(self, user_id, eid_number, max_retries=2):
         """
         Automatically gets UIDAI captcha, solves it via OCR, and requests Aadhaar/EID OTP.
         """
@@ -182,8 +184,8 @@ class AadhaarBot:
         for attempt in range(1, max_retries + 1):
             img_bytes, c_txn, t_id = self.get_captcha(user_id)
             if not img_bytes:
-                last_error = "UIDAI captcha server unreachable"
-                continue
+                last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
+                break  # Don't keep hammering when UIDAI is unreachable
             code = self.solve_captcha(img_bytes)
             if not code or len(code) < 4:
                 continue
@@ -249,7 +251,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/audioCaptchaService/api/captcha/v3/generation',
-                json=captcha_data, timeout=15
+                json=captcha_data, timeout=(3.5, 8)
             )
             if response.status_code != 200:
                 return None, None, None
@@ -281,7 +283,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/unifiedAppAuthService/api/v2/generate/aadhaar/otp',
-                json=otp_request_data, timeout=15
+                json=otp_request_data, timeout=(4, 10)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -303,7 +305,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/downloadAadhaarService/api/aadhaar/download',
-                json=download_data, timeout=20
+                json=download_data, timeout=(5, 15)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -333,7 +335,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
-                json=request_data, timeout=15
+                json=request_data, timeout=(4, 10)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -362,7 +364,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
-                json=verify_data, timeout=15
+                json=verify_data, timeout=(4, 10)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -386,4 +388,4 @@ class AadhaarBot:
     def crack_pdf_with_name(self, pdf_path, name, birth_year=None, progress_callback=None):
         return self.cracker.crack_pdf(pdf_path, name, birth_year, progress_callback)
 
-bot_api = AadhaarBot()
+bot_api = AadhaarBot(proxy_url=os.environ.get("PROXY_URL", "").strip() or None)
