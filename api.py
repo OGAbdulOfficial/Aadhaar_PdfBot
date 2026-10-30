@@ -565,24 +565,29 @@ class AadhaarBot:
                     headers=headers,
                     json_data=download_data,
                     proxy_url=proxy_url,
-                    timeout=35
+                    timeout=90
                 )
+                logger.info(f"Download response from {proxy_url}: status={response.status_code}, content_len={len(response.content) if response.content else 0}")
                 if response.status_code == 200 and response.content:
                     pdf_bytes = self.extract_pdf_data(response.content)
                     if pdf_bytes and len(pdf_bytes) > 1000:
                         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
                         tmp.write(pdf_bytes)
                         tmp.close()
+                        logger.info(f"Successfully extracted Aadhaar PDF ({len(pdf_bytes)} bytes) to {tmp.name}")
                         return True, tmp.name
 
                     try:
                         resp_json = response.json()
                         err = (resp_json.get('errorDetails') or {}).get('messageEnglish') or resp_json.get('message') or resp_json.get('errorMessage') or str(resp_json)
+                        logger.warning(f"Download returned JSON error: {err}")
                         return False, err
                     except Exception:
+                        logger.warning(f"Failed to parse download response: {response.content[:200] if response.content else 'empty'}")
                         return False, "Failed to parse downloaded document"
                 else:
                     last_err = f"HTTP {response.status_code}"
+                    logger.warning(f"Download non-200 on {proxy_url}: {last_err}")
             except Exception as e:
                 last_err = str(e)
                 logger.warning(f"Download fail on {proxy_url}: {e}")

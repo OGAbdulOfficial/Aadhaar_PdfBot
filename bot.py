@@ -1,5 +1,6 @@
 import sys
 import io
+import html
 # Force UTF-8 output on Windows consoles with line buffering
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
@@ -352,7 +353,7 @@ def _cleanup_sessions():
                 for cid, s in list(user_sessions.items()):
                     step = s.get('step', 'main')
                     if step != 'main':
-                        if step == 'awaiting_utr':
+                        if step in ('awaiting_utr', 'downloading'):
                             continue
                         idle = time.time() - s.get('last_activity', time.time())
                         if idle > SESSION_TIMEOUT:
@@ -429,7 +430,14 @@ def send_message(chat_id, text, reply_markup=None):
         payload['reply_markup'] = reply_markup
     try:
         response = get_telegram_session().post(url, json=payload, timeout=10)
-        return response.json()
+        res = response.json()
+        if not res.get('ok'):
+            logger.error(f"Telegram sendMessage failed for chat {chat_id}: {res}")
+            if 'parse entities' in str(res.get('description', '')).lower():
+                payload['text'] = re.sub(r'<[^>]+>', '', text)
+                payload['parse_mode'] = None
+                return get_telegram_session().post(url, json=payload, timeout=10).json()
+        return res
     except Exception as e:
         logger.error(f"Error sending message: {e}")
         return None
@@ -498,6 +506,13 @@ def send_document(chat_id, file_path, caption=None, filename="Aadhaar.pdf"):
             if caption:
                 data['caption'] = caption
             response = get_telegram_session().post(url, data=data, files=files, timeout=30).json()
+            if not response.get('ok'):
+                logger.error(f"Telegram sendDocument failed for chat {chat_id}: {response}")
+                if 'parse entities' in str(response.get('description', '')).lower():
+                    f.seek(0)
+                    data['parse_mode'] = None
+                    data['caption'] = re.sub(r'<[^>]+>', '', caption) if caption else None
+                    response = get_telegram_session().post(url, data=data, files=files, timeout=30).json()
         return response
     except Exception as e:
         logger.error(f"Error sending document: {e}")
@@ -680,27 +695,29 @@ def deliver_pdf(chat_id, pdf_path, verified_name):
             caption = (
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                 f"<b>✅ ᴅᴏᴄᴜᴍᴇɴᴛ ʀᴇᴀᴅʏ (ᴜɴʟᴏᴄᴋᴇᴅ)</b>\n\n"
-                f"👤  <b>ɴᴀᴍᴇ</b>      ·  <b>{name_display}</b>\n"
+                f"👤  <b>ɴᴀᴍᴇ</b>      ·  <b>{html.escape(name_display)}</b>\n"
                 f"📄  <b>ғᴏʀᴍᴀᴛ</b>    ·  e-Aadhaar PDF\n"
                 f"🔓  <b>ᴘᴀssᴡᴏʀᴅ</b>  ·  <code>{password}</code>\n"
                 f"{DIVIDER}"
             )
-            send_document(chat_id, decrypted_path, caption=caption, filename="Aadhaar.pdf")
+            doc_res = send_document(chat_id, decrypted_path, caption=caption, filename="Aadhaar.pdf")
+            logger.info(f"Delivered unlocked PDF to {chat_id}: {doc_res.get('ok') if doc_res else False}")
             set_message_reaction(chat_id, message_id=None, emoji="⚡")
         else:
             caption = (
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                 f"<b>📄 ᴅᴏᴄᴜᴍᴇɴᴛ ʀᴇᴀᴅʏ</b>\n\n"
-                f"👤  <b>ɴᴀᴍᴇ</b>    ·  {name_display}\n"
+                f"👤  <b>ɴᴀᴍᴇ</b>    ·  {html.escape(name_display)}\n"
                 f"📄  <b>ғᴏʀᴍᴀᴛ</b>  ·  e-Aadhaar PDF\n"
                 f"🔒  <b>sᴛᴀᴛᴜs</b>  ·  Password Protected\n"
                 f"{DIVIDER}\n\n"
                 f"<i>🔑  ᴘᴀssᴡᴏʀᴅ: First 4 letters of name in CAPITAL + Birth Year\n"
                 f"   ᴇxᴀᴍᴘʟᴇ: <code>RAJE1995</code></i>"
             )
-            send_document(chat_id, pdf_path, caption=caption, filename="Aadhaar.pdf")
+            doc_res = send_document(chat_id, pdf_path, caption=caption, filename="Aadhaar.pdf")
+            logger.info(f"Delivered protected PDF to {chat_id}: {doc_res.get('ok') if doc_res else False}")
     except Exception as e:
-        logger.error(f"PDF delivery error: {e}")
+        logger.error(f"PDF delivery error: {e}", exc_info=True)
         send_document(
             chat_id, pdf_path,
             caption=f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>📄 ᴅᴏᴄᴜᴍᴇɴᴛ ʀᴇᴀᴅʏ</b>",
@@ -1805,6 +1822,9 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         verified_n = d.get('verified_name', 'Mr.')
         sticky_p   = d.get('sticky_proxy')
 
+        # Protect session from idle expiration during download
+        set_session(chat_id, 'downloading', d)
+
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -1814,17 +1834,24 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         success, pdf_res = bot.download_aadhaar_pdf(chat_id, id_val, otp, otp_txn_id, t_id, sticky_proxy=sticky_p)
         if not success:
             clear_session(chat_id)
+            err_msg = html.escape(str(pdf_res or "Download failed"))
             send_message(
                 chat_id,
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                 f"<b>❌ ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ</b>\n\n"
-                f"⚠️  {pdf_res}\n"
+                f"⚠️  {err_msg}\n"
                 f"✅  Credits not deducted.",
                 reply_markup=get_main_keyboard()
             )
             return
 
-        worker_pool.submit(deliver_pdf, chat_id, pdf_res, verified_n)
+        def _safe_deliver(cid, path, name):
+            try:
+                deliver_pdf(cid, path, name)
+            except Exception as ex:
+                logger.error(f"Error in deliver_pdf for chat {cid}: {ex}", exc_info=True)
+
+        worker_pool.submit(_safe_deliver, chat_id, pdf_res, verified_n)
         return
 
     send_message(
