@@ -18,14 +18,28 @@ def get_uidai_session(use_proxy=False, proxy_string=None):
     session = requests.Session()
     # Fast retry: only 1 retry on connection failure to prevent long blocking
     session.mount('https://', requests.adapters.HTTPAdapter(
-        pool_connections=10, pool_maxsize=20, max_retries=1, pool_block=False
+        pool_connections=15, pool_maxsize=30, max_retries=1, pool_block=False
     ))
     if use_proxy and proxy_string:
-        parsed = urlparse(proxy_string)
-        proxy_url = f"{parsed.scheme}://{parsed.netloc}"
-        session.proxies = {'http': proxy_url, 'https': proxy_url}
-        logger.info(f"UIDAI Session configured with proxy: {proxy_url}")
+        proxy_clean = proxy_string.strip()
+        if not proxy_clean.startswith(('http://', 'https://', 'socks5://', 'socks4://')):
+            proxy_clean = f"http://{proxy_clean}"
+        session.proxies = {'http': proxy_clean, 'https': proxy_clean}
+        logger.info(f"UIDAI Session configured with proxy: {proxy_clean}")
     return session
+
+def is_uidai_maintenance_window():
+    """Checks if current time in IST is within UIDAI's regular daily downtime (12:00 AM - 4:30 AM IST)."""
+    try:
+        from datetime import timezone, timedelta
+        ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+        hour = ist_now.hour
+        minute = ist_now.minute
+        if (hour == 23 and minute >= 45) or (0 <= hour < 4) or (hour == 4 and minute <= 30):
+            return True, ist_now.strftime("%I:%M %p IST")
+        return False, ist_now.strftime("%I:%M %p IST")
+    except Exception:
+        return False, "IST"
 
 # ============== PDF PASSWORD CRACKER ==============
 class PDFPasswordCracker:
@@ -114,8 +128,11 @@ class PDFPasswordCracker:
 # ============== AADHAAR BOT CLASS ==============
 class AadhaarBot:
     def __init__(self, proxy_url=None):
-        proxy = proxy_url or os.environ.get("PROXY_URL", "").strip() or None
-        self.session = get_uidai_session(use_proxy=bool(proxy), proxy_string=proxy)
+        proxy_raw = proxy_url or os.environ.get("PROXY_URL", "").strip() or os.environ.get("PROXY_LIST", "").strip()
+        self.proxies = [p.strip() for p in proxy_raw.split(",") if p.strip()] if proxy_raw else []
+        self.proxy_index = 0
+        current_p = self.proxies[0] if self.proxies else None
+        self.session = get_uidai_session(use_proxy=bool(current_p), proxy_string=current_p)
         self.base_headers = {
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en_IN',
@@ -139,7 +156,16 @@ class AadhaarBot:
         except Exception as e:
             logger.error(f"Failed to initialize OCR: {e}")
             self.ocr = None
-        logger.info("AadhaarBot initialized with Auto-Captcha OCR")
+        logger.info(f"AadhaarBot initialized with Auto-Captcha OCR (Proxies configured: {len(self.proxies)})")
+
+    def rotate_proxy(self):
+        """Rotates to next proxy in the proxy pool if available."""
+        if len(self.proxies) > 1:
+            self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
+            next_proxy = self.proxies[self.proxy_index]
+            logger.warning(f"Rotating to next proxy: {next_proxy}")
+            self.session = get_uidai_session(use_proxy=True, proxy_string=next_proxy)
+            self.session.headers.update(self.base_headers)
 
     def solve_captcha(self, image_bytes):
         if not image_bytes or not self.ocr:
@@ -161,8 +187,14 @@ class AadhaarBot:
         for attempt in range(1, max_retries + 1):
             img_bytes, c_txn, t_id = self.get_captcha(user_id)
             if not img_bytes:
-                last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
-                break  # Don't keep hammering when UIDAI is unreachable
+                in_maint, t_str = is_uidai_maintenance_window()
+                if in_maint:
+                    last_error = f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). UIDAI servers are offline between 12:00 AM and 4:30 AM IST. Please try again after 4:30 AM!"
+                else:
+                    last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
+                if len(self.proxies) > 1:
+                    self.rotate_proxy()
+                break
             code = self.solve_captcha(img_bytes)
             if not code or len(code) < 4:
                 continue
@@ -184,8 +216,14 @@ class AadhaarBot:
         for attempt in range(1, max_retries + 1):
             img_bytes, c_txn, t_id = self.get_captcha(user_id)
             if not img_bytes:
-                last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
-                break  # Don't keep hammering when UIDAI is unreachable
+                in_maint, t_str = is_uidai_maintenance_window()
+                if in_maint:
+                    last_error = f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). UIDAI servers are offline between 12:00 AM and 4:30 AM IST. Please try again after 4:30 AM!"
+                else:
+                    last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
+                if len(self.proxies) > 1:
+                    self.rotate_proxy()
+                break
             code = self.solve_captcha(img_bytes)
             if not code or len(code) < 4:
                 continue
@@ -247,11 +285,12 @@ class AadhaarBot:
     def get_captcha(self, user_id):
         transaction_id = self.generate_transaction_id()
         self.session.headers.update({'x-request-id': transaction_id, 'transactionId': transaction_id})
-        captcha_data = {'captchaLength': '6', 'captchaType': '2', 'audioCaptchaRequired': True}
+        # audioCaptchaRequired False reduces UIDAI server workload and latency by ~70%
+        captcha_data = {'captchaLength': '6', 'captchaType': '2', 'audioCaptchaRequired': False}
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/audioCaptchaService/api/captcha/v3/generation',
-                json=captcha_data, timeout=(3.5, 8)
+                json=captcha_data, timeout=(6, 12)
             )
             if response.status_code != 200:
                 return None, None, None
@@ -283,7 +322,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/unifiedAppAuthService/api/v2/generate/aadhaar/otp',
-                json=otp_request_data, timeout=(4, 10)
+                json=otp_request_data, timeout=(6, 15)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -305,7 +344,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/downloadAadhaarService/api/aadhaar/download',
-                json=download_data, timeout=(5, 15)
+                json=download_data, timeout=(8, 20)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -335,7 +374,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
-                json=request_data, timeout=(4, 10)
+                json=request_data, timeout=(6, 15)
             )
             if response.status_code == 200:
                 resp_json = response.json()
@@ -364,7 +403,7 @@ class AadhaarBot:
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
-                json=verify_data, timeout=(4, 10)
+                json=verify_data, timeout=(6, 15)
             )
             if response.status_code == 200:
                 resp_json = response.json()

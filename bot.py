@@ -1536,8 +1536,15 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
 
     if current_step == 'awaiting_name':
         name = message_text.strip()
-        if len(name) < 2:
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  Name too short. Enter your full name.", reply_markup=get_cancel_keyboard())
+        if len(name) < 3:
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"❌  <b>ɴᴀᴍᴇ ᴛᴏᴏ sʜᴏʀᴛ</b>\n\n"
+                f"▸  ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ʏᴏᴜʀ <b>ғᴜʟʟ ɴᴀᴍᴇ</b> ᴀs ʀᴇɢɪsᴛᴇʀᴇᴅ ᴏɴ ᴀᴀᴅʜᴀᴀʀ\n"
+                f"▸  <i>e.g. Rajesh Kumar (at least 3 characters)</i>",
+                reply_markup=get_cancel_keyboard()
+            )
             return
 
         update_session_data(chat_id, 'name', name)
