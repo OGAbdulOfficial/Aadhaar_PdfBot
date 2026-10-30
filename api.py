@@ -4,29 +4,80 @@ import base64
 import uuid
 import logging
 import tempfile
+import zipfile
+import json
+import re
 import requests
+from io import BytesIO
 from datetime import datetime
-from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
+import urllib3
+
+# Suppress insecure SSL warnings from proxy forward tunneling
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+try:
+    from PIL import Image
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+try:
+    import pikepdf
+    HAS_PIKEPDF = True
+except ImportError:
+    HAS_PIKEPDF = False
+
 import PyPDF2
 import ddddocr
 
 logger = logging.getLogger(__name__)
 
+# Verified active Indian proxies for UIDAI access
+DEFAULT_PROXIES = [
+    "https://103.251.94.188:443",
+    "https://14.99.141.239:443",
+    "https://163.223.186.141:443",
+    "https://103.251.94.10:443",
+    "https://202.162.232.76:443",
+    "https://49.50.72.246:443",
+    "https://182.156.203.41:443",
+    "https://210.89.42.108:443",
+]
+
+def _preprocess_captcha(img_bytes: bytes, thresh: int = 140) -> bytes:
+    """Preprocess captcha image to enhance OCR accuracy."""
+    if not HAS_PIL:
+        return img_bytes
+    try:
+        img = Image.open(BytesIO(img_bytes)).convert("L")
+        w, h = img.size
+        img = img.resize((w * 3, h * 3), Image.LANCZOS)
+        img = img.point(lambda p: 255 if p > thresh else 0)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return img_bytes
+
+
 # ============== SESSION FACTORY ==============
-def get_uidai_session(use_proxy=False, proxy_string=None):
+def get_uidai_session(use_proxy=True, proxy_string=None):
     session = requests.Session()
-    # Fast retry: only 1 retry on connection failure to prevent long blocking
     session.mount('https://', requests.adapters.HTTPAdapter(
-        pool_connections=15, pool_maxsize=30, max_retries=1, pool_block=False
+        pool_connections=20, pool_maxsize=40, max_retries=1, pool_block=False
     ))
-    if use_proxy and proxy_string:
-        proxy_clean = proxy_string.strip()
-        if not proxy_clean.startswith(('http://', 'https://', 'socks5://', 'socks4://')):
-            proxy_clean = f"http://{proxy_clean}"
-        session.proxies = {'http': proxy_clean, 'https': proxy_clean}
-        logger.info(f"UIDAI Session configured with proxy: {proxy_clean}")
+    session.verify = False  # Indian proxies use self-signed TLS forward tunneling
+    
+    proxy_target = proxy_string or (DEFAULT_PROXIES[0] if DEFAULT_PROXIES else None)
+    if use_proxy and proxy_target:
+        clean = proxy_target.strip()
+        if not clean.startswith(('http://', 'https://', 'socks5://', 'socks4://')):
+            clean = f"http://{clean}"
+        session.proxies = {'http': clean, 'https': clean}
+        logger.info(f"UIDAI Session configured with proxy: {clean}")
     return session
+
 
 def is_uidai_maintenance_window():
     """Checks if current time in IST is within UIDAI's regular daily downtime (12:00 AM - 4:30 AM IST)."""
@@ -41,14 +92,44 @@ def is_uidai_maintenance_window():
     except Exception:
         return False, "IST"
 
+
 # ============== PDF PASSWORD CRACKER ==============
 class PDFPasswordCracker:
-    def __init__(self, max_workers=4):
+    def __init__(self, max_workers=6):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.found_password = None
         self.stop_flag = False
 
-    def try_password(self, pdf_path, password):
+    def crack_with_pikepdf(self, pdf_path, prefix, years_to_try):
+        if not HAS_PIKEPDF:
+            return False, None, None
+        try:
+            # Check if PDF is already unencrypted
+            try:
+                with pikepdf.open(pdf_path) as p:
+                    tmp = tempfile.NamedTemporaryFile(suffix="_decrypted.pdf", delete=False)
+                    p.save(tmp.name)
+                    tmp.close()
+                    return True, "None", tmp.name
+            except pikepdf.PasswordError:
+                pass
+
+            for y in years_to_try:
+                pwd = f"{prefix}{y}"
+                try:
+                    with pikepdf.open(pdf_path, password=pwd) as p:
+                        tmp = tempfile.NamedTemporaryFile(suffix="_decrypted.pdf", delete=False)
+                        p.save(tmp.name)
+                        tmp.close()
+                        logger.info(f"PDF unlocked with pikepdf: {pwd}")
+                        return True, pwd, tmp.name
+                except pikepdf.PasswordError:
+                    continue
+        except Exception as e:
+            logger.warning(f"pikepdf cracker error: {e}")
+        return False, None, None
+
+    def try_password_pypdf(self, pdf_path, password):
         try:
             with open(pdf_path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
@@ -58,10 +139,9 @@ class PDFPasswordCracker:
         except Exception:
             return False, None
 
-    def decrypt_pdf(self, pdf_path, password, output_path=None):
+    def decrypt_pdf_pypdf(self, pdf_path, password, output_path=None):
         try:
             if output_path is None:
-                # Use a secure temp file to prevent disk leaks
                 tmp = tempfile.NamedTemporaryFile(suffix="_decrypted.pdf", delete=False)
                 output_path = tmp.name
                 tmp.close()
@@ -74,357 +154,390 @@ class PDFPasswordCracker:
                     pdf_writer.add_page(page)
                 with open(output_path, 'wb') as output_file:
                     pdf_writer.write(output_file)
-            logger.info(f"Decrypted PDF written to: {output_path}")
             return output_path
         except Exception as e:
-            logger.error(f"Error decrypting PDF: {e}")
+            logger.error(f"Error decrypting PDF with PyPDF2: {e}")
             return None
 
     def crack_pdf(self, pdf_path, name, birth_year=None, progress_callback=None):
-        """
-        Cracks standard UIDAI e-Aadhaar PDF.
-        Priority 1: If birth_year provided, test immediately (instant).
-        Priority 2: Common birth years (1950 - 2026).
-        """
-        self.found_password = None
-        self.stop_flag = False
-        
         name_clean = "".join(ch for ch in (name or "USER").upper() if ch.isalnum())
         prefix = name_clean[:4] if len(name_clean) >= 4 else name_clean.ljust(4, 'X')
-        
-        # Priority 1: User specified birth year
+
+        years_to_try = []
         if birth_year and str(birth_year).isdigit():
-            pwd = f"{prefix}{birth_year}"
-            ok, _ = self.try_password(pdf_path, pwd)
-            if ok:
-                decrypted_path = self.decrypt_pdf(pdf_path, pwd)
-                return True, pwd, decrypted_path
-
-        # Generate candidates
+            years_to_try.append(int(birth_year))
+        
         current_year = datetime.now().year
-        candidate_years = list(range(1960, current_year + 1)) + list(range(1930, 1960))
-        passwords = [f"{prefix}{y}" for y in candidate_years]
+        for y in range(current_year, 1945, -1):
+            if y not in years_to_try:
+                years_to_try.append(y)
 
-        # Fast parallel evaluation in small batches
-        batch_size = 25
+        # 1. Fast pikepdf attempt (C++ speed, 0.02s)
+        if HAS_PIKEPDF:
+            ok, pwd, path = self.crack_with_pikepdf(pdf_path, prefix, years_to_try)
+            if ok:
+                return True, pwd, path
+
+        # 2. Parallel PyPDF2 fallback
+        passwords = [f"{prefix}{y}" for y in years_to_try]
+        batch_size = 20
+        self.stop_flag = False
         for i in range(0, len(passwords), batch_size):
             if self.stop_flag:
                 break
             batch = passwords[i:i + batch_size]
-            futures = [self.executor.submit(self.try_password, pdf_path, p) for p in batch]
+            futures = [self.executor.submit(self.try_password_pypdf, pdf_path, p) for p in batch]
             for fut in futures:
                 try:
-                    success, found_pwd = fut.result(timeout=1.5)
+                    success, found_pwd = fut.result(timeout=1.0)
                     if success:
-                        self.found_password = found_pwd
                         self.stop_flag = True
-                        decrypted_path = self.decrypt_pdf(pdf_path, found_pwd)
+                        decrypted_path = self.decrypt_pdf_pypdf(pdf_path, found_pwd)
                         return True, found_pwd, decrypted_path
                 except Exception:
                     continue
 
         return False, None, None
 
-# ============== AADHAAR BOT CLASS ==============
+
+# ============== AADHAAR BOT API CLASS ==============
 class AadhaarBot:
     def __init__(self, proxy_url=None):
-        proxy_raw = proxy_url or os.environ.get("PROXY_URL", "").strip() or os.environ.get("PROXY_LIST", "").strip()
-        self.proxies = [p.strip() for p in proxy_raw.split(",") if p.strip()] if proxy_raw else []
+        proxy_raw = proxy_url or os.environ.get("PROXY_LIST", "").strip() or os.environ.get("PROXY_URL", "").strip()
+        if proxy_raw:
+            self.proxies = [p.strip() for p in proxy_raw.split(",") if p.strip()]
+        else:
+            self.proxies = list(DEFAULT_PROXIES)
+
         self.proxy_index = 0
         current_p = self.proxies[0] if self.proxies else None
         self.session = get_uidai_session(use_proxy=bool(current_p), proxy_string=current_p)
+
         self.base_headers = {
             'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en_IN',
-            'Connection': 'keep-alive',
             'Content-Type': 'application/json',
-            'Origin': 'https://myaadhaar.uidai.gov.in',
-            'Referer': 'https://myaadhaar.uidai.gov.in/',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+            'Origin': 'https://myaadhaarbeta.uidai.gov.in',
+            'Referer': 'https://myaadhaarbeta.uidai.gov.in/',
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+            'Accept-Language': 'en_IN',
             'appid': 'MYAADHAAR',
-            'sec-ch-ua': '"Not-A.Brand";v="99", "Chromium";v="124"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
+            'sec-ch-ua': '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Linux"',
         }
         self.session.headers.update(self.base_headers)
         self.cracker = PDFPasswordCracker()
+
         try:
             self.ocr = ddddocr.DdddOcr(show_ad=False)
         except Exception as e:
             logger.error(f"Failed to initialize OCR: {e}")
             self.ocr = None
-        logger.info(f"AadhaarBot initialized with Auto-Captcha OCR (Proxies configured: {len(self.proxies)})")
+
+        logger.info(f"AadhaarBot API initialized (Proxies available: {len(self.proxies)})")
 
     def rotate_proxy(self):
-        """Rotates to next proxy in the proxy pool if available."""
-        if len(self.proxies) > 1:
-            self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
-            next_proxy = self.proxies[self.proxy_index]
-            logger.warning(f"Rotating to next proxy: {next_proxy}")
-            self.session = get_uidai_session(use_proxy=True, proxy_string=next_proxy)
-            self.session.headers.update(self.base_headers)
+        """Rotates to the next proxy in the pool."""
+        if not self.proxies:
+            return None
+        self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
+        next_p = self.proxies[self.proxy_index]
+        logger.warning(f"Rotating to proxy #{self.proxy_index}: {next_p}")
+        self.session = get_uidai_session(use_proxy=True, proxy_string=next_p)
+        self.session.headers.update(self.base_headers)
+        return next_p
 
     def solve_captcha(self, image_bytes):
         if not image_bytes or not self.ocr:
             return None
         try:
-            res = self.ocr.classification(image_bytes)
-            return res.strip() if res else None
+            raw_res = "".join(c for c in self.ocr.classification(image_bytes) if c.isalnum())
+            if len(raw_res) == 6:
+                return raw_res
+
+            # Try image preprocessing with multiple contrast thresholds
+            candidates = [raw_res]
+            for th in (110, 130, 150, 170):
+                prep = _preprocess_captcha(image_bytes, th)
+                cand = "".join(ch for ch in self.ocr.classification(prep) if ch.isalnum())
+                if len(cand) == 6:
+                    return cand
+                candidates.append(cand)
+
+            for c in candidates:
+                if len(c) == 6:
+                    return c
+            for c in candidates:
+                if len(c) > 6:
+                    return c[:6]
+            return candidates[0] if candidates and len(candidates[0]) >= 4 else None
         except Exception as e:
             logger.error(f"Error solving captcha: {e}")
             return None
 
-    def auto_send_eid_otp(self, user_id, mobile, name, max_retries=2):
-        """
-        Automatically gets UIDAI captcha, solves it via OCR, and requests EID OTP.
-        Retries up to max_retries if UIDAI rejects the captcha.
-        Returns: (success, otp_txn_id, captcha_code, captcha_txn_id, transaction_id, error_message)
-        """
-        last_error = "Failed to solve captcha"
-        for attempt in range(1, max_retries + 1):
-            img_bytes, c_txn, t_id = self.get_captcha(user_id)
-            if not img_bytes:
-                in_maint, t_str = is_uidai_maintenance_window()
-                if in_maint:
-                    last_error = f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). UIDAI servers are offline between 12:00 AM and 4:30 AM IST. Please try again after 4:30 AM!"
-                else:
-                    last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
-                if len(self.proxies) > 1:
-                    self.rotate_proxy()
-                break
-            code = self.solve_captcha(img_bytes)
-            if not code or len(code) < 4:
-                continue
-            logger.info(f"Auto-solved Captcha for Mobile (attempt {attempt}): {code}")
-            ok, res = self.send_eid_otp(user_id, mobile, name, code, c_txn, t_id)
-            if ok:
-                return True, res, code, c_txn, t_id, None
-            last_error = str(res)
-            # If it's not a captcha error (e.g. invalid mobile, no record), don't retry endlessly
-            if "record" in last_error.lower() or "mobile" in last_error.lower():
-                return False, None, None, None, None, last_error
-        return False, None, None, None, None, last_error
-
-    def auto_send_aadhaar_otp(self, user_id, eid_number, max_retries=2):
-        """
-        Automatically gets UIDAI captcha, solves it via OCR, and requests Aadhaar/EID OTP.
-        """
-        last_error = "Failed to solve captcha"
-        for attempt in range(1, max_retries + 1):
-            img_bytes, c_txn, t_id = self.get_captcha(user_id)
-            if not img_bytes:
-                in_maint, t_str = is_uidai_maintenance_window()
-                if in_maint:
-                    last_error = f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). UIDAI servers are offline between 12:00 AM and 4:30 AM IST. Please try again after 4:30 AM!"
-                else:
-                    last_error = "UIDAI portal is unreachable or timed out. Please try again in a few moments."
-                if len(self.proxies) > 1:
-                    self.rotate_proxy()
-                break
-            code = self.solve_captcha(img_bytes)
-            if not code or len(code) < 4:
-                continue
-            logger.info(f"Auto-solved Captcha for Aadhaar OTP (attempt {attempt}): {code}")
-            ok, otp_txn_id, msg = self.send_aadhaar_otp(user_id, eid_number, code, c_txn, t_id)
-            if ok:
-                return True, otp_txn_id, code, c_txn, t_id, None
-            last_error = str(msg)
-            if "invalid aadhaar" in last_error.lower():
-                return False, None, None, None, None, last_error
-        return False, None, None, None, None, last_error
-
     def generate_transaction_id(self):
         return str(uuid.uuid4())
 
-    def is_base64(self, s):
-        if not isinstance(s, str) or len(s) < 100:
-            return False
-        if s.startswith('data:'):
-            s = s.split(',')[1] if ',' in s else s
-        if len(s) % 4 != 0:
-            return False
-        try:
-            base64.b64decode(s)
-            return True
-        except Exception:
-            return False
-
-    def detect_file_type(self, file_bytes):
-        if file_bytes[:4] == b'%PDF':
-            return 'pdf'
-        elif file_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-            return 'png'
-        elif file_bytes[:2] == b'\xff\xd8':
-            return 'jpg'
-        return 'unknown'
-
-    def detect_and_decode_base64(self, data, field_name="unknown"):
-        """Extracts decoded bytes without saving to disk unnecessarily."""
-        decoded_items = []
-        if isinstance(data, dict):
-            for key, value in list(data.items()):
-                if isinstance(value, str) and len(value) > 100 and self.is_base64(value):
-                    try:
-                        clean_base64 = value.split(',')[1] if value.startswith('data:') and ',' in value else value
-                        decoded_bytes = base64.b64decode(clean_base64)
-                        file_type = self.detect_file_type(decoded_bytes)
-                        decoded_items.append({'field': key, 'type': file_type, 'size': len(decoded_bytes), 'data': decoded_bytes})
-                    except Exception as e:
-                        logger.error(f"Base64 decode error: {e}")
-                if isinstance(value, (dict, list)):
-                    decoded_items.extend(self.detect_and_decode_base64(value, f"{field_name}.{key}"))
-        elif isinstance(data, list):
-            for idx, item in enumerate(data):
-                if isinstance(item, (dict, list)):
-                    decoded_items.extend(self.detect_and_decode_base64(item, f"{field_name}[{idx}]"))
-        return decoded_items
-
     def get_captcha(self, user_id):
         transaction_id = self.generate_transaction_id()
-        self.session.headers.update({'x-request-id': transaction_id, 'transactionId': transaction_id})
-        # audioCaptchaRequired False reduces UIDAI server workload and latency by ~70%
+        self.session.headers.update({'X-Request-ID': transaction_id, 'transactionId': transaction_id})
         captcha_data = {'captchaLength': '6', 'captchaType': '2', 'audioCaptchaRequired': False}
-        try:
-            response = self.session.post(
-                'https://tathya.uidai.gov.in/audioCaptchaService/api/captcha/v3/generation',
-                json=captcha_data, timeout=(6, 12)
-            )
-            if response.status_code != 200:
-                return None, None, None
-            resp_json = response.json()
-            captcha_txn_id = resp_json.get('transactionId')
-            captcha_base64 = resp_json.get('imageBase64')
-            if not captcha_base64:
-                for key, value in resp_json.items():
-                    if isinstance(value, str) and len(value) > 100 and self.is_base64(value):
-                        captcha_base64 = value
-                        break
-            if not captcha_base64:
-                return None, None, None
-            if captcha_base64.startswith('data:image'):
-                captcha_base64 = captcha_base64.split(',')[1]
-            image_bytes = base64.b64decode(captcha_base64)
-            return image_bytes, captcha_txn_id, transaction_id
-        except Exception as e:
-            logger.error(f"Error getting captcha: {str(e)}")
-            return None, None, None
 
-    def send_aadhaar_otp(self, user_id, eid_number, captcha_value, captcha_txn_id, transaction_id):
-        self.session.headers.update({'x-request-id': transaction_id, 'transactionId': transaction_id})
-        otp_request_data = {
-            'eidNumber': eid_number, 'idType': 'eid',
-            'captchaTxnId': captcha_txn_id, 'captchaValue': captcha_value,
-            'transactionId': transaction_id, 'resendOTP': False
+        for p_try in range(min(len(self.proxies) or 1, 3)):
+            try:
+                response = self.session.post(
+                    'https://tathya.uidai.gov.in/audioCaptchaService/api/captcha/v3/generation',
+                    json=captcha_data, timeout=(4, 7)
+                )
+                if response.status_code == 200:
+                    resp_json = response.json()
+                    c_txn = resp_json.get('transactionId')
+                    c_b64 = resp_json.get('imageBase64')
+                    if c_b64:
+                        if c_b64.startswith('data:image'):
+                            c_b64 = c_b64.split(',')[1]
+                        return base64.b64decode(c_b64), c_txn, transaction_id
+            except Exception as e:
+                logger.warning(f"get_captcha fail on proxy: {e}. Rotating...")
+                self.rotate_proxy()
+
+        return None, None, None
+
+    def auto_send_eid_otp(self, user_id, mobile, name="Mr", max_retries=5):
+        """
+        Automatically fetches captcha, solves via OCR, and requests EID OTP.
+        UIDAI allows name="Mr" and dob=null for Mobile -> EID OTP lookup!
+        """
+        last_error = "Failed to solve captcha"
+        for attempt in range(1, max_retries + 1):
+            img_bytes, c_txn, t_id = self.get_captcha(user_id)
+            if not img_bytes:
+                in_maint, t_str = is_uidai_maintenance_window()
+                if in_maint:
+                    return False, None, None, None, None, f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). Please try again after 4:30 AM IST!"
+                self.rotate_proxy()
+                last_error = "UIDAI portal is currently unreachable or slow. Retrying..."
+                continue
+
+            code = self.solve_captcha(img_bytes)
+            if not code or len(code) != 6:
+                continue
+
+            logger.info(f"Auto-solved Captcha for Mobile (attempt {attempt}): {code}")
+            ok, otp_txn, err_msg = self.send_eid_otp(user_id, mobile, name or "Mr", code, c_txn, t_id)
+            if ok:
+                return True, otp_txn, code, c_txn, t_id, None
+
+            last_error = str(err_msg or "Failed to request OTP")
+            err_lower = last_error.lower()
+            if "no record" in err_lower or "not linked" in err_lower or "not registered" in err_lower:
+                return False, None, None, None, None, "⚠️ The entered mobile number is not linked with any Aadhaar card."
+
+        return False, None, None, None, None, last_error
+
+    def send_eid_otp(self, user_id, mobile, name, captcha_code, captcha_txn_id, transaction_id):
+        self.session.headers.update({'X-Request-ID': transaction_id, 'transactionId': transaction_id})
+        request_data = {
+            'mobileNumber': str(mobile),
+            'dob': None,
+            'email': None,
+            'name': name or "Mr",
+            'option': 'EID',
+            'otp': None,
+            'otpTxnId': None,
+            'captchaTxnId': captcha_txn_id,
+            'captcha': captcha_code,
+            'resendOtp': False
         }
         try:
             response = self.session.post(
-                'https://tathya.uidai.gov.in/unifiedAppAuthService/api/v2/generate/aadhaar/otp',
-                json=otp_request_data, timeout=(6, 15)
+                'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
+                json=request_data, timeout=(5, 8)
             )
             if response.status_code == 200:
                 resp_json = response.json()
-                otp_txn_id = resp_json.get('txnId')
-                status = resp_json.get('status')
-                message = resp_json.get('message')
-                if otp_txn_id and status == "Success":
-                    return True, otp_txn_id, message
-                else:
-                    return False, None, message
+                rd = resp_json.get('responseData', {})
+                if rd.get('otpSent') and rd.get('otpTxnId'):
+                    return True, rd.get('otpTxnId'), None
+                msg = rd.get('message') or (resp_json.get('errorDetails') or {}).get('messageEnglish') or resp_json.get('message')
+                return False, None, msg
             else:
                 return False, None, f"HTTP {response.status_code}"
         except Exception as e:
             return False, None, str(e)
 
-    def download_aadhaar_pdf(self, user_id, eid_number, otp, otp_txn_id, transaction_id, mask=False):
-        self.session.headers.update({'x-request-id': transaction_id, 'transactionId': transaction_id})
-        download_data = {'eid': eid_number, 'mask': mask, 'otp': otp, 'otpTxnId': otp_txn_id}
-        try:
-            response = self.session.post(
-                'https://tathya.uidai.gov.in/downloadAadhaarService/api/aadhaar/download',
-                json=download_data, timeout=(8, 20)
-            )
-            if response.status_code == 200:
-                resp_json = response.json()
-                decoded_files = self.detect_and_decode_base64(resp_json, "aadhaar_download")
-                for f in decoded_files:
-                    if f.get('type') == 'pdf':
-                        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-                        tmp.write(f['data'])
-                        tmp.close()
-                        return True, tmp.name
-                
-                error_msg = resp_json.get('message', resp_json.get('errorMessage', 'No PDF data found'))
-                return False, error_msg
-            else:
-                return False, f"HTTP {response.status_code}"
-        except Exception as e:
-            return False, str(e)
-
-    def send_eid_otp(self, user_id, mobile, name, captcha_code, captcha_txn_id, transaction_id):
-        self.session.headers.update({'x-request-id': transaction_id, 'transactionId': transaction_id})
-        request_data = {
-            'mobileNumber': mobile, 'dob': None, 'email': None,
-            'name': name.upper(), 'option': 'EID', 'otp': None,
-            'otpTxnId': None, 'captchaTxnId': captcha_txn_id,
-            'captcha': captcha_code, 'resendOtp': False
-        }
-        try:
-            response = self.session.post(
-                'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
-                json=request_data, timeout=(6, 15)
-            )
-            if response.status_code == 200:
-                resp_json = response.json()
-                if 'responseData' in resp_json:
-                    response_data = resp_json['responseData']
-                    otp_txn_id = response_data.get('otpTxnId')
-                    status = response_data.get('status')
-                    if otp_txn_id and status == "Success":
-                        return True, otp_txn_id
-                    else:
-                        return False, response_data.get('message', 'Unknown error')
-                return False, 'Invalid response structure'
-            else:
-                return False, f'HTTP {response.status_code}'
-        except Exception as e:
-            return False, str(e)
-
     def verify_eid_otp(self, user_id, mobile, name, otp_code, otp_txn_id, captcha_txn_id, captcha_code):
-        self.session.headers.update({'x-request-id': self.generate_transaction_id()})
+        """Verifies OTP 1 and retrieves the registered EID and the full registered name."""
+        self.session.headers.update({'X-Request-ID': self.generate_transaction_id()})
         verify_data = {
-            'mobileNumber': mobile, 'dob': None, 'name': name.upper(),
-            'email': None, 'option': 'EID', 'otp': otp_code,
-            'otpTxnId': otp_txn_id, 'captchaTxnId': captcha_txn_id,
-            'captcha': captcha_code, 'resendOtp': False
+            'mobileNumber': str(mobile),
+            'dob': None,
+            'name': name or "Mr",
+            'email': None,
+            'option': 'EID',
+            'otp': otp_code,
+            'otpTxnId': otp_txn_id,
+            'captchaTxnId': captcha_txn_id,
+            'captcha': captcha_code,
+            'resendOtp': False
         }
         try:
             response = self.session.post(
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
-                json=verify_data, timeout=(6, 15)
+                json=verify_data, timeout=(6, 10)
             )
             if response.status_code == 200:
                 resp_json = response.json()
-                if resp_json.get('status') in [200, "Success", True]:
-                    if 'responseData' in resp_json:
-                        response_data = resp_json['responseData']
-                        eid_number = response_data.get('eidNumber')
-                        name_from_response = response_data.get('name', name)
-                        if eid_number:
-                            return True, eid_number, name_from_response
-                        return False, None, "No EID found"
-                    return False, None, "Invalid response"
-                else:
-                    error_msg = resp_json.get('errorDetails', {}).get('messageEnglish', 'Verification failed')
-                    return False, None, error_msg
+                rd = resp_json.get('responseData', {})
+                eid_number = rd.get('eidNumber')
+                # Real registered full name from UIDAI!
+                name_from_response = rd.get('name') or name or "USER"
+                dob_from_response = rd.get('dob') or rd.get('dateOfBirth') or rd.get('birthDate')
+                if eid_number:
+                    return True, eid_number, name_from_response, dob_from_response
+
+                msg = rd.get('message') or (resp_json.get('errorDetails') or {}).get('messageEnglish') or 'Invalid OTP'
+                return False, None, msg, None
             else:
-                return False, None, f'HTTP {response.status_code}'
+                return False, None, f"HTTP {response.status_code}", None
+        except Exception as e:
+            return False, None, str(e), None
+
+    def auto_send_aadhaar_otp(self, user_id, eid_number, max_retries=5):
+        """Generates the Phase 2 download OTP using the EID."""
+        last_error = "Failed to solve captcha"
+        for attempt in range(1, max_retries + 1):
+            img_bytes, c_txn, t_id = self.get_captcha(user_id)
+            if not img_bytes:
+                self.rotate_proxy()
+                continue
+
+            code = self.solve_captcha(img_bytes)
+            if not code or len(code) != 6:
+                continue
+
+            logger.info(f"Auto-solved Captcha for Aadhaar OTP (attempt {attempt}): {code}")
+            ok, otp_txn_id, msg = self.send_aadhaar_otp(user_id, eid_number, code, c_txn, t_id)
+            if ok:
+                return True, otp_txn_id, code, c_txn, t_id, None
+            last_error = str(msg)
+            if "invalid" in last_error.lower() or "deactivated" in last_error.lower():
+                return False, None, None, None, None, last_error
+
+        return False, None, None, None, None, last_error
+
+    def send_aadhaar_otp(self, user_id, eid_number, captcha_value, captcha_txn_id, transaction_id):
+        req_txn = f"MYAADHAAR:{uuid.uuid4()}"
+        self.session.headers.update({'X-Request-ID': req_txn, 'transactionId': req_txn})
+        otp_request_data = {
+            'eidNumber': str(eid_number),
+            'idType': 'eid',
+            'captchaTxnId': captcha_txn_id,
+            'captchaValue': captcha_value,
+            'transactionId': req_txn,
+        }
+        try:
+            response = self.session.post(
+                'https://tathya.uidai.gov.in/unifiedAppAuthService/api/v2/generate/aadhaar/otp',
+                json=otp_request_data, timeout=(6, 10)
+            )
+            if response.status_code == 200:
+                resp_json = response.json()
+                otp_txn_id = resp_json.get('txnId')
+                status = resp_json.get('status')
+                message = resp_json.get('message') or resp_json.get('statusMessage')
+                if status == "Success" or otp_txn_id:
+                    return True, otp_txn_id, message
+                return False, None, message
+            else:
+                return False, None, f"HTTP {response.status_code}"
         except Exception as e:
             return False, None, str(e)
 
+    def extract_pdf_data(self, raw_content: bytes):
+        """Extracts PDF bytes whether sent as raw PDF, ZIP archive, or Base64 inside JSON."""
+        if not raw_content:
+            return None
+        if raw_content[:4] == b"%PDF":
+            return raw_content
+        if raw_content[:2] == b"PK":
+            try:
+                with zipfile.ZipFile(BytesIO(raw_content)) as z:
+                    for name in z.namelist():
+                        if name.lower().endswith(".pdf"):
+                            return z.read(name)
+            except Exception as e:
+                logger.warning(f"ZIP extract error: {e}")
+
+        # JSON parsing fallback
+        idx1 = raw_content.find(b'{')
+        idx2 = raw_content.rfind(b'}')
+        if idx1 != -1 and idx2 != -1:
+            raw_json = raw_content[idx1:idx2 + 1]
+        else:
+            raw_json = raw_content
+
+        try:
+            parsed = json.loads(raw_json.decode("utf-8", errors="replace"))
+            for key in ("pdfBase64", "aadhaarPdf", "aadhaarPdfBase64", "pdfData", "pdf", "file", "base64", "document", "data"):
+                if key in parsed:
+                    val = parsed[key]
+                    if isinstance(val, str) and len(val) > 200:
+                        if val.startswith("data:"):
+                            val = val.split(",", 1)[1]
+                        return base64.b64decode(val)
+        except Exception:
+            pass
+
+        return None
+
+    def download_aadhaar_pdf(self, user_id, eid_number, otp, otp_txn_id, transaction_id, mask=False):
+        """Downloads the Aadhaar PDF using appid=MYAADHAARREVAMP."""
+        headers = dict(self.base_headers)
+        headers["appid"] = "MYAADHAARREVAMP"
+        headers["X-Request-ID"] = str(uuid.uuid4())
+        
+        download_data = {
+            'eid': str(eid_number),
+            'mask': mask,
+            'otp': str(otp),
+            'otpTxnId': str(otp_txn_id)
+        }
+
+        last_err = None
+        for proxy_try in range(min(len(self.proxies) or 1, 3)):
+            try:
+                response = self.session.post(
+                    'https://tathya.uidai.gov.in/downloadAadhaarService/api/aadhaar/download',
+                    headers=headers,
+                    json=download_data,
+                    timeout=(10, 45)
+                )
+                if response.status_code == 200 and response.content:
+                    pdf_bytes = self.extract_pdf_data(response.content)
+                    if pdf_bytes and len(pdf_bytes) > 1000:
+                        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                        tmp.write(pdf_bytes)
+                        tmp.close()
+                        return True, tmp.name
+
+                    # Might be an error in JSON
+                    try:
+                        resp_json = response.json()
+                        err = resp_json.get('message') or resp_json.get('errorMessage') or str(resp_json)
+                        return False, err
+                    except Exception:
+                        return False, "Failed to parse downloaded document"
+                else:
+                    last_err = f"HTTP {response.status_code}"
+            except Exception as e:
+                last_err = str(e)
+                self.rotate_proxy()
+
+        return False, last_err or "Download failed"
+
     def crack_pdf_with_name(self, pdf_path, name, birth_year=None, progress_callback=None):
         return self.cracker.crack_pdf(pdf_path, name, birth_year, progress_callback)
+
 
 bot_api = AadhaarBot(proxy_url=os.environ.get("PROXY_URL", "").strip() or None)

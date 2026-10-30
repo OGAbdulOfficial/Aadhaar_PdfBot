@@ -1491,61 +1491,41 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             )
             return
 
+        name = parts[1].strip() if len(parts) > 1 and len(parts[1].strip()) >= 2 else "Mr"
         update_session_data(chat_id, 'mobile', mobile_candidate)
+        update_session_data(chat_id, 'name', name)
 
-        # Allow user to send mobile and name together in one message
-        if len(parts) > 1 and len(parts[1].strip()) >= 2:
-            name = parts[1].strip()
-            update_session_data(chat_id, 'name', name)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ & sᴇɴᴅɪɴɢ ᴏᴛᴘ…</i>")
-            ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(chat_id, mobile_candidate, name)
-            if not ok:
-                clear_session(chat_id)
-                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and name, then try again.</i>", reply_markup=get_main_keyboard())
-                return
+        send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ & sᴇɴᴅɪɴɢ ᴏᴛᴘ…</i>")
 
-            update_session_data(chat_id, 'eid_otp_txn_id', otp_txn)
-            update_session_data(chat_id, 'captcha_code', code)
-            update_session_data(chat_id, 'captcha_txn_id', c_txn)
-            update_session_data(chat_id, 'transaction_id', t_id)
-            set_session(chat_id, 'awaiting_eid_otp', get_session(chat_id)['data'])
-
-            masked_mobile = f"{mobile_candidate[:2]}******{mobile_candidate[-2:]}"
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"<b>📲 ᴏᴛᴘ sᴇɴᴛ</b>\n\n"
-                f"📱  ᴍᴏʙɪʟᴇ  ·  <code>{masked_mobile}</code>\n"
-                f"⏰  ᴠᴀʟɪᴅ   ·  10 minutes\n\n"
-                f"{DIVIDER}\n"
-                f"<i>👇  ᴇɴᴛᴇʀ ᴛʜᴇ 6-ᴅɪɢɪᴛ ᴏᴛᴘ sᴇɴᴛ ᴛᴏ ʏᴏᴜʀ ᴘʜᴏɴᴇ.</i>",
-                reply_markup=get_cancel_keyboard()
-            )
+        ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(chat_id, mobile_candidate, name)
+        if not ok:
+            clear_session(chat_id)
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and try again.</i>", reply_markup=get_main_keyboard())
             return
 
-        set_session(chat_id, 'awaiting_name', get_session(chat_id)['data'])
+        update_session_data(chat_id, 'eid_otp_txn_id', otp_txn)
+        update_session_data(chat_id, 'captcha_code', code)
+        update_session_data(chat_id, 'captcha_txn_id', c_txn)
+        update_session_data(chat_id, 'transaction_id', t_id)
+        set_session(chat_id, 'awaiting_eid_otp', get_session(chat_id)['data'])
+
+        masked_mobile = f"{mobile_candidate[:2]}******{mobile_candidate[-2:]}"
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>👤 ғᴜʟʟ ɴᴀᴍᴇ</b>\n\n"
-            f"▸  ᴇɴᴛᴇʀ ᴛʜᴇ ɴᴀᴍᴇ ᴀs ʀᴇɢɪsᴛᴇʀᴇᴅ ᴏɴ ᴀᴀᴅʜᴀᴀʀ\n\n"
-            f"<i>💡  ᴄᴀsᴇ-ɪɴsᴇɴsɪᴛɪᴠᴇ — e.g. Rajesh Kumar</i>",
+            f"<b>📲 ᴏᴛᴘ sᴇɴᴛ</b>\n\n"
+            f"📱  ᴍᴏʙɪʟᴇ  ·  <code>{masked_mobile}</code>\n"
+            f"⏰  ᴠᴀʟɪᴅ   ·  10 minutes\n\n"
+            f"{DIVIDER}\n"
+            f"<i>👇  ᴇɴᴛᴇʀ ᴛʜᴇ 6-ᴅɪɢɪᴛ ᴏᴛᴘ sᴇɴᴛ ᴛᴏ ʏᴏᴜʀ ᴘʜᴏɴᴇ.</i>",
             reply_markup=get_cancel_keyboard()
         )
         return
 
     if current_step == 'awaiting_name':
         name = message_text.strip()
-        if len(name) < 3:
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"❌  <b>ɴᴀᴍᴇ ᴛᴏᴏ sʜᴏʀᴛ</b>\n\n"
-                f"▸  ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ʏᴏᴜʀ <b>ғᴜʟʟ ɴᴀᴍᴇ</b> ᴀs ʀᴇɢɪsᴛᴇʀᴇᴅ ᴏɴ ᴀᴀᴅʜᴀᴀʀ\n"
-                f"▸  <i>e.g. Rajesh Kumar (at least 3 characters)</i>",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
+        if len(name) < 2:
+            name = "Mr"
 
         update_session_data(chat_id, 'name', name)
         d = get_session(chat_id)['data']
@@ -1556,7 +1536,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(chat_id, mobile, name)
         if not ok:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and name, then try again.</i>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and try again.</i>", reply_markup=get_main_keyboard())
             return
 
         update_session_data(chat_id, 'eid_otp_txn_id', otp_txn)
@@ -1586,23 +1566,32 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
 
         d = get_session(chat_id)['data']
         mobile       = d.get('mobile')
-        name         = d.get('name')
+        name         = d.get('name', 'Mr')
         otp_txn_id   = d.get('eid_otp_txn_id')
         c_txn        = d.get('captcha_txn_id')
         captcha_code = d.get('captcha_code')
 
         send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  Verifying OTP and retrieving EID…</i>")
 
-        success, eid_number, verified_name = bot.verify_eid_otp(
+        res = bot.verify_eid_otp(
             chat_id, mobile, name, otp, otp_txn_id, c_txn, captcha_code
         )
+        if len(res) == 4:
+            success, eid_number, verified_name, dob = res
+        else:
+            success, eid_number, verified_name = res
+            dob = None
+
         if not success:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{verified_name}</b>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{verified_name or 'Verification failed'}</b>", reply_markup=get_main_keyboard())
             return
 
         update_session_data(chat_id, 'eid_number', eid_number)
+        update_session_data(chat_id, 'id_value', eid_number)
         update_session_data(chat_id, 'verified_name', verified_name or name)
+        if dob:
+            update_session_data(chat_id, 'dob', dob)
 
         send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  Auto-solving download captcha…</i>")
         ok, dl_otp_txn, dl_code, dl_c_txn, dl_t_id, err = bot.auto_send_aadhaar_otp(chat_id, eid_number)
