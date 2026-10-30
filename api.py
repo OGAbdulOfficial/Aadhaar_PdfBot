@@ -462,8 +462,12 @@ class AadhaarBot:
             ok, otp_txn_id, msg = self.send_aadhaar_otp(user_id, eid_number, code, c_txn, t_id, proxy_url=proxy_used)
             if ok:
                 return True, otp_txn_id, code, c_txn, t_id, None
-            last_error = str(msg)
-            if "invalid" in last_error.lower() or "deactivated" in last_error.lower():
+            last_error = str(msg or "Failed to request download OTP")
+            err_lower = last_error.lower()
+            if "captcha" in err_lower:
+                logger.warning(f"Captcha failed on attempt {attempt}: {last_error}. Retrying next attempt...")
+                continue
+            if "deactivated" in err_lower or "invalid eid" in err_lower or "invalid aadhaar" in err_lower:
                 return False, None, None, None, None, last_error
 
         return False, None, None, None, None, last_error
