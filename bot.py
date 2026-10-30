@@ -1594,14 +1594,22 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             update_session_data(chat_id, 'dob', dob)
 
         send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  Auto-solving download captcha…</i>")
-        ok, dl_otp_txn, dl_code, dl_c_txn, dl_t_id, err = bot.auto_send_aadhaar_otp(chat_id, eid_number)
+        dl_res = bot.auto_send_aadhaar_otp(chat_id, eid_number)
+        ok = dl_res[0]
         if not ok:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  {err or 'Failed to send download OTP.'}", reply_markup=get_main_keyboard())
+            err = dl_res[5] if len(dl_res) > 5 else "Failed to send download OTP."
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  {err}", reply_markup=get_main_keyboard())
             return
+
+        dl_otp_txn = dl_res[1]
+        dl_t_id = dl_res[4]
+        sticky_proxy = dl_res[6] if len(dl_res) > 6 else None
 
         update_session_data(chat_id, 'download_otp_txn_id', dl_otp_txn)
         update_session_data(chat_id, 'dl_transaction_id', dl_t_id)
+        if sticky_proxy:
+            update_session_data(chat_id, 'sticky_proxy', sticky_proxy)
         set_session(chat_id, 'awaiting_final_otp', get_session(chat_id)['data'])
 
         send_message(
@@ -1632,14 +1640,17 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             name = parts[1].strip()
             update_session_data(chat_id, 'verified_name', name)
             send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ & sᴇɴᴅɪɴɢ ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ…</i>")
-            ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_aadhaar_otp(chat_id, aadhaar)
-            if not ok:
+            dl_res = bot.auto_send_aadhaar_otp(chat_id, aadhaar)
+            if not dl_res[0]:
                 clear_session(chat_id)
-                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>", reply_markup=get_main_keyboard())
+                err = dl_res[5] if len(dl_res) > 5 else "Failed to send OTP"
+                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_main_keyboard())
                 return
 
-            update_session_data(chat_id, 'download_otp_txn_id', otp_txn)
-            update_session_data(chat_id, 'dl_transaction_id', t_id)
+            update_session_data(chat_id, 'download_otp_txn_id', dl_res[1])
+            update_session_data(chat_id, 'dl_transaction_id', dl_res[4])
+            if len(dl_res) > 6 and dl_res[6]:
+                update_session_data(chat_id, 'sticky_proxy', dl_res[6])
             set_session(chat_id, 'awaiting_final_otp', get_session(chat_id)['data'])
 
             send_message(
@@ -1669,14 +1680,17 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         aadhaar = d.get('aadhaar_number')
         
         send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  Auto-solving captcha & sending download OTP…</i>")
-        ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_aadhaar_otp(chat_id, aadhaar)
-        if not ok:
+        dl_res = bot.auto_send_aadhaar_otp(chat_id, aadhaar)
+        if not dl_res[0]:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>", reply_markup=get_main_keyboard())
+            err = dl_res[5] if len(dl_res) > 5 else "Failed to send OTP"
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_main_keyboard())
             return
 
-        update_session_data(chat_id, 'download_otp_txn_id', otp_txn)
-        update_session_data(chat_id, 'dl_transaction_id', t_id)
+        update_session_data(chat_id, 'download_otp_txn_id', dl_res[1])
+        update_session_data(chat_id, 'dl_transaction_id', dl_res[4])
+        if len(dl_res) > 6 and dl_res[6]:
+            update_session_data(chat_id, 'sticky_proxy', dl_res[6])
         set_session(chat_id, 'awaiting_final_otp', get_session(chat_id)['data'])
 
         send_message(
@@ -1714,14 +1728,17 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         eid_clean = d.get('eid_number')
 
         send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>⏳  Auto-solving captcha & sending download OTP…</i>")
-        ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_aadhaar_otp(chat_id, eid_clean)
-        if not ok:
+        dl_res = bot.auto_send_aadhaar_otp(chat_id, eid_clean)
+        if not dl_res[0]:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>", reply_markup=get_main_keyboard())
+            err = dl_res[5] if len(dl_res) > 5 else "Failed to send OTP"
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_main_keyboard())
             return
 
-        update_session_data(chat_id, 'download_otp_txn_id', otp_txn)
-        update_session_data(chat_id, 'dl_transaction_id', t_id)
+        update_session_data(chat_id, 'download_otp_txn_id', dl_res[1])
+        update_session_data(chat_id, 'dl_transaction_id', dl_res[4])
+        if len(dl_res) > 6 and dl_res[6]:
+            update_session_data(chat_id, 'sticky_proxy', dl_res[6])
         set_session(chat_id, 'awaiting_final_otp', get_session(chat_id)['data'])
 
         send_message(
@@ -1786,6 +1803,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         otp_txn_id = d.get('download_otp_txn_id')
         t_id       = d.get('dl_transaction_id')
         verified_n = d.get('verified_name', 'Mr.')
+        sticky_p   = d.get('sticky_proxy')
 
         send_message(
             chat_id,
@@ -1793,7 +1811,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             f"<i>⏳  Downloading e-Aadhaar PDF from UIDAI…</i>"
         )
 
-        success, pdf_res = bot.download_aadhaar_pdf(chat_id, id_val, otp, otp_txn_id, t_id)
+        success, pdf_res = bot.download_aadhaar_pdf(chat_id, id_val, otp, otp_txn_id, t_id, sticky_proxy=sticky_p)
         if not success:
             clear_session(chat_id)
             send_message(
