@@ -241,6 +241,8 @@ class AadhaarBot:
             self.proxies = list(DEFAULT_PROXIES)
 
         self.proxy_index = 0
+        self.user_proxies = {}  # Sticky proxy per user_id
+
         self.base_headers = dict(UIDAI_HEADERS)
         self.base_headers["appid"] = "MYAADHAAR"
 
@@ -322,25 +324,26 @@ class AadhaarBot:
                     if c_b64:
                         if c_b64.startswith('data:image'):
                             c_b64 = c_b64.split(',')[1]
-                        return base64.b64decode(c_b64), c_txn, transaction_id, p
+                        self.user_proxies[user_id] = p
+                        return base64.b64decode(c_b64), c_txn, transaction_id
             except Exception as e:
                 logger.warning(f"get_captcha fail on proxy {p}: {e}. Rotating...")
                 self.rotate_proxy()
 
-        return None, None, None, None
+        return None, None, None
 
     def auto_send_eid_otp(self, user_id, mobile, name="Mr", max_retries=5):
         """
         Automatically fetches captcha, solves via OCR, and requests EID OTP.
-        UIDAI allows name="Mr" and dob=null for Mobile -> EID OTP lookup!
+        Returns exactly 6 items: (ok, otp_txn, code, c_txn, t_id, error_message)
         """
         last_error = "Failed to solve captcha"
         for attempt in range(1, max_retries + 1):
-            img_bytes, c_txn, t_id, proxy_used = self.get_captcha(user_id)
+            img_bytes, c_txn, t_id = self.get_captcha(user_id)
             if not img_bytes:
                 in_maint, t_str = is_uidai_maintenance_window()
                 if in_maint:
-                    return False, None, None, None, None, f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). Please try again after 4:30 AM IST!", None
+                    return False, None, None, None, None, f"🌙 UIDAI Portal is closed for daily night maintenance ({t_str}). Please try again after 4:30 AM IST!"
                 self.rotate_proxy()
                 last_error = "UIDAI portal is currently unreachable or slow. Retrying..."
                 continue
@@ -349,17 +352,18 @@ class AadhaarBot:
             if not code or len(code) != 6:
                 continue
 
+            proxy_used = self.user_proxies.get(user_id)
             logger.info(f"Auto-solved Captcha for Mobile (attempt {attempt}): {code}")
             ok, otp_txn, err_msg = self.send_eid_otp(user_id, mobile, name or "Mr", code, c_txn, t_id, proxy_url=proxy_used)
             if ok:
-                return True, otp_txn, code, c_txn, t_id, None, proxy_used
+                return True, otp_txn, code, c_txn, t_id, None
 
             last_error = str(err_msg or "Failed to request OTP")
             err_lower = last_error.lower()
             if "no record" in err_lower or "not linked" in err_lower or "not registered" in err_lower:
-                return False, None, None, None, None, "⚠️ The entered mobile number is not linked with any Aadhaar card.", None
+                return False, None, None, None, None, "⚠️ The entered mobile number is not linked with any Aadhaar card."
 
-        return False, None, None, None, None, last_error, None
+        return False, None, None, None, None, last_error
 
     def send_eid_otp(self, user_id, mobile, name, captcha_code, captcha_txn_id, transaction_id, proxy_url=None):
         headers = dict(self.base_headers)
@@ -382,7 +386,7 @@ class AadhaarBot:
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
                 headers=headers,
                 json_data=request_data,
-                proxy_url=proxy_url or self.get_current_proxy(),
+                proxy_url=proxy_url or self.user_proxies.get(user_id) or self.get_current_proxy(),
                 timeout=8
             )
             if response.status_code == 200:
@@ -418,7 +422,7 @@ class AadhaarBot:
                 'https://tathya.uidai.gov.in/retrieveEidUid/ext/v1/generic/retrieveuideid',
                 headers=headers,
                 json_data=verify_data,
-                proxy_url=proxy_url or self.get_current_proxy(),
+                proxy_url=proxy_url or self.user_proxies.get(user_id) or self.get_current_proxy(),
                 timeout=10
             )
             if response.status_code == 200:
@@ -438,10 +442,13 @@ class AadhaarBot:
             return False, None, str(e), None
 
     def auto_send_aadhaar_otp(self, user_id, eid_number, max_retries=5):
-        """Generates the Phase 2 download OTP using the EID."""
+        """
+        Generates the Phase 2 download OTP using the EID.
+        Returns exactly 6 items: (ok, otp_txn_id, code, c_txn, t_id, error_message)
+        """
         last_error = "Failed to solve captcha"
         for attempt in range(1, max_retries + 1):
-            img_bytes, c_txn, t_id, proxy_used = self.get_captcha(user_id)
+            img_bytes, c_txn, t_id = self.get_captcha(user_id)
             if not img_bytes:
                 self.rotate_proxy()
                 continue
@@ -450,15 +457,16 @@ class AadhaarBot:
             if not code or len(code) != 6:
                 continue
 
+            proxy_used = self.user_proxies.get(user_id)
             logger.info(f"Auto-solved Captcha for Aadhaar OTP (attempt {attempt}): {code}")
             ok, otp_txn_id, msg = self.send_aadhaar_otp(user_id, eid_number, code, c_txn, t_id, proxy_url=proxy_used)
             if ok:
-                return True, otp_txn_id, code, c_txn, t_id, None, proxy_used
+                return True, otp_txn_id, code, c_txn, t_id, None
             last_error = str(msg)
             if "invalid" in last_error.lower() or "deactivated" in last_error.lower():
-                return False, None, None, None, None, last_error, None
+                return False, None, None, None, None, last_error
 
-        return False, None, None, None, None, last_error, None
+        return False, None, None, None, None, last_error
 
     def send_aadhaar_otp(self, user_id, eid_number, captcha_value, captcha_txn_id, transaction_id, proxy_url=None):
         req_txn = f"MYAADHAAR:{uuid.uuid4()}"
@@ -477,7 +485,7 @@ class AadhaarBot:
                 'https://tathya.uidai.gov.in/unifiedAppAuthService/api/v2/generate/aadhaar/otp',
                 headers=headers,
                 json_data=otp_request_data,
-                proxy_url=proxy_url or self.get_current_proxy(),
+                proxy_url=proxy_url or self.user_proxies.get(user_id) or self.get_current_proxy(),
                 timeout=10
             )
             if response.status_code == 200:
@@ -543,8 +551,9 @@ class AadhaarBot:
             'otpTxnId': str(otp_txn_id)
         }
 
-        # Try sticky proxy first (the one that generated OTP 2), then fallback to other proxies
-        proxy_candidates = [sticky_proxy] if sticky_proxy else []
+        # Sticky proxy matching the session
+        sticky_target = sticky_proxy or self.user_proxies.get(user_id)
+        proxy_candidates = [sticky_target] if sticky_target else []
         proxy_candidates += [p for p in self.proxies if p not in proxy_candidates]
 
         last_err = None
@@ -566,7 +575,6 @@ class AadhaarBot:
                         tmp.close()
                         return True, tmp.name
 
-                    # Might be an error in JSON
                     try:
                         resp_json = response.json()
                         err = (resp_json.get('errorDetails') or {}).get('messageEnglish') or resp_json.get('message') or resp_json.get('errorMessage') or str(resp_json)
