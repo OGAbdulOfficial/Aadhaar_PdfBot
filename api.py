@@ -40,16 +40,16 @@ import ddddocr
 
 logger = logging.getLogger(__name__)
 
-# Verified active Indian proxies for UIDAI access
+# Verified active Indian proxies sorted by benchmark speed
 DEFAULT_PROXIES = [
-    "https://103.251.94.188:443",
-    "https://14.99.141.239:443",
+    "https://210.89.42.108:443",
     "https://163.223.186.141:443",
     "https://103.251.94.10:443",
     "https://202.162.232.76:443",
+    "https://14.99.141.239:443",
+    "https://103.251.94.188:443",
     "https://49.50.72.246:443",
     "https://182.156.203.41:443",
-    "https://210.89.42.108:443",
 ]
 
 UIDAI_HEADERS = {
@@ -597,7 +597,7 @@ class AadhaarBot:
                     headers=headers,
                     json_data=download_data,
                     proxy_url=proxy_url,
-                    timeout=90
+                    timeout=180
                 )
                 logger.info(f"Download response from {proxy_url}: status={response.status_code}, content_len={len(response.content) if response.content else 0}")
                 if response.status_code == 200 and response.content:
