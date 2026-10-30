@@ -84,7 +84,7 @@ SESSION_TIMEOUT    = 60
 
 # Parse Admin IDs
 ADMIN_IDS = set()
-for a in os.environ.get("ADMIN_IDS", "8267676849,8901139503,8267676849").split(","):
+for a in os.environ.get("ADMIN_IDS", "8267676849,8901139503,8327823004").split(","):
     a = a.strip()
     if a.isdigit():
         ADMIN_IDS.add(int(a))
