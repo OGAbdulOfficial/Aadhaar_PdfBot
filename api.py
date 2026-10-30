@@ -524,17 +524,45 @@ class AadhaarBot:
         else:
             raw_json = raw_content
 
+        def _find_b64_pdf(obj):
+            if isinstance(obj, str):
+                s = obj.strip()
+                if s.startswith("JVBERi") or s.startswith("data:application/pdf"):
+                    return s
+                if len(s) > 1000:
+                    try:
+                        if base64.b64decode(s[:20] + "==").startswith(b"%PDF"):
+                            return s
+                    except Exception:
+                        pass
+                return None
+            if isinstance(obj, dict):
+                for k in ("aadhaarPdf", "pdfBase64", "aadhaarPdfBase64", "pdfData", "pdf", "file", "base64", "document", "data"):
+                    if k in obj:
+                        res = _find_b64_pdf(obj[k])
+                        if res:
+                            return res
+                for v in obj.values():
+                    if isinstance(v, (dict, list)):
+                        res = _find_b64_pdf(v)
+                        if res:
+                            return res
+            elif isinstance(obj, list):
+                for item in obj:
+                    res = _find_b64_pdf(item)
+                    if res:
+                        return res
+            return None
+
         try:
             parsed = json.loads(raw_json.decode("utf-8", errors="replace"))
-            for key in ("pdfBase64", "aadhaarPdf", "aadhaarPdfBase64", "pdfData", "pdf", "file", "base64", "document", "data"):
-                if key in parsed:
-                    val = parsed[key]
-                    if isinstance(val, str) and len(val) > 200:
-                        if val.startswith("data:"):
-                            val = val.split(",", 1)[1]
-                        return base64.b64decode(val)
-        except Exception:
-            pass
+            b64 = _find_b64_pdf(parsed)
+            if b64:
+                if b64.startswith("data:"):
+                    b64 = b64.split(",", 1)[1]
+                return base64.b64decode(b64)
+        except Exception as e:
+            logger.warning(f"JSON PDF decode error: {e}")
 
         return None
 
@@ -579,9 +607,11 @@ class AadhaarBot:
 
                     try:
                         resp_json = response.json()
-                        err = (resp_json.get('errorDetails') or {}).get('messageEnglish') or resp_json.get('message') or resp_json.get('errorMessage') or str(resp_json)
+                        err = (resp_json.get('errorDetails') or {}).get('messageEnglish') or resp_json.get('message') or resp_json.get('errorMessage') or resp_json.get('statusMessage') or "Failed to retrieve PDF"
+                        if isinstance(err, (dict, list)) or len(str(err)) > 200:
+                            err = "Failed to parse downloaded document"
                         logger.warning(f"Download returned JSON error: {err}")
-                        return False, err
+                        return False, str(err)
                     except Exception:
                         logger.warning(f"Failed to parse download response: {response.content[:200] if response.content else 'empty'}")
                         return False, "Failed to parse downloaded document"
