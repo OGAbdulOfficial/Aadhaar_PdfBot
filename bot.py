@@ -893,6 +893,9 @@ def _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=None, is_b
     if sess.get('step') != 'downloading':
         return False, {'error': 'Session cancelled', 'mobile': mobile}
 
+    # Baseline existing OTPs on device to guarantee only freshly arrived OTPs are accepted
+    baseline_otps = bot.get_existing_device_otps(fb_url, device_id=dev_id)
+
     # Auto-send Mobile OTP 1
     otp_sent_time = time.time()
     ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(task_user_id, mobile, "Mr")
@@ -925,9 +928,9 @@ def _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=None, is_b
     if sess.get('step') != 'downloading':
         return False, {'error': 'Session cancelled', 'mobile': mobile}
 
-    # Poll Firebase for OTP 1 (using device_id for instant lookup)
+    # Poll Firebase for OTP 1 (using device_id for instant lookup, excluding pre-existing OTPs)
     found1, otp1, msg1 = bot.fetch_otp_from_firebase(
-        fb_url, min_timestamp=otp_sent_time - 30, timeout=75, poll_interval=3, target_mobile=mobile, device_id=dev_id
+        fb_url, min_timestamp=otp_sent_time - 15, timeout=75, poll_interval=3, target_mobile=mobile, exclude_otps=baseline_otps, device_id=dev_id
     )
     if not found1 or not otp1:
         logger.warning(f"OTP 1 timeout for {mobile}")
@@ -1007,9 +1010,9 @@ def _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=None, is_b
     if sess.get('step') != 'downloading':
         return False, {'error': 'Session cancelled', 'mobile': mobile}
 
-    # Poll Firebase for OTP 2 (excluding otp1)
+    # Poll Firebase for OTP 2 (excluding baseline OTPs and OTP 1)
     found2, otp2, msg2 = bot.fetch_otp_from_firebase(
-        fb_url, min_timestamp=otp2_sent_time - 30, timeout=75, poll_interval=3, target_mobile=mobile, exclude_otps=[otp1], device_id=dev_id
+        fb_url, min_timestamp=otp2_sent_time - 15, timeout=75, poll_interval=3, target_mobile=mobile, exclude_otps=list(set(baseline_otps + [otp1])), device_id=dev_id
     )
     if not found2 or not otp2:
         logger.warning(f"OTP 2 timeout for {mobile}")
