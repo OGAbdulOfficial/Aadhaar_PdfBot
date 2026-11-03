@@ -106,6 +106,13 @@ for a in os.environ.get("ADMIN_IDS", "8267676849,8901139503,8327823004").split("
 if OWNER_ID:
     ADMIN_IDS.add(OWNER_ID)
 
+def is_admin(user_id):
+    try:
+        uid = int(user_id)
+        return uid in ADMIN_IDS or uid == OWNER_ID
+    except Exception:
+        return False
+
 # Indian UPI Credit Pricing Plans (Small Caps Styled)
 PLANS = {
     '50':  {'credits': 25,  'price': '₹50',  'amount': 50,  'lifetime': False, 'label': '⚡ sᴛᴀʀᴛᴇʀ (25 ᴄʀᴇᴅɪᴛs)'},
@@ -742,6 +749,8 @@ def channel_gate(chat_id):
     return True
 
 def credit_gate(chat_id):
+    if is_admin(chat_id):
+        return True
     if not has_credits(chat_id):
         send_message(
             chat_id,
@@ -1058,7 +1067,7 @@ def _handle_firebase_batch_worker(chat_id, fb_url, devices):
             if sess.get('step') != 'downloading':
                 break
 
-            if not has_sufficient_credits(chat_id):
+            if not (is_admin(chat_id) or has_credits(chat_id)):
                 send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -1213,9 +1222,6 @@ def show_firebase_devices_menu(chat_id, page=0):
     send_message(chat_id, msg_text, reply_markup={'inline_keyboard': kb_rows})
 
 # ============== ADMIN PANEL ==============
-def is_admin(user_id):
-    return user_id in ADMIN_IDS
-
 def show_admin_panel(chat_id):
     data           = all_users()
     total          = len(data)
@@ -1897,11 +1903,12 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
 
             req_count = len(valid_devs) if count_str == 'all' else min(int(count_str), len(valid_devs))
             cr = get_credits(chat_id)
-            if cr != float('inf') and cr < 1:
+            is_adm = is_admin(chat_id)
+            if not is_adm and cr != float('inf') and cr < 1:
                 send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n⚠️ Insufficient credits. Please recharge credits to download.", reply_markup=get_buy_keyboard())
                 return
 
-            if cr != float('inf') and cr < req_count:
+            if not is_adm and cr != float('inf') and cr < req_count:
                 req_count = int(cr)
 
             selected_devices = valid_devs[:req_count]

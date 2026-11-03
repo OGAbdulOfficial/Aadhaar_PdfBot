@@ -267,7 +267,23 @@ def get_user(user_id):
         return dict(doc)
     return None
 
+# Privileged Users (Owner & Admins get 100% Free / Unlimited Access)
+_OWNER_ID = int(os.environ.get("OWNER_ID", "8267676849"))
+_ADMIN_IDS = {_OWNER_ID}
+for _aid in os.environ.get("ADMIN_IDS", "8267676849,8327823004,8901139503").split(","):
+    _aid = _aid.strip()
+    if _aid.isdigit():
+        _ADMIN_IDS.add(int(_aid))
+
+def is_privileged(user_id):
+    try:
+        return int(user_id) in _ADMIN_IDS
+    except Exception:
+        return False
+
 def get_credits(user_id):
+    if is_privileged(user_id):
+        return float('inf')
     u = get_user(user_id)
     if not u:
         return 0
@@ -276,10 +292,14 @@ def get_credits(user_id):
     return float(u.get('credits', 0))
 
 def is_lifetime(user_id):
+    if is_privileged(user_id):
+        return True
     u = get_user(user_id)
     return bool(u.get('lifetime')) if u else False
 
 def has_credits(user_id):
+    if is_privileged(user_id):
+        return True
     return get_credits(user_id) > 0
 
 def add_credits(user_id, amount, make_lifetime=False):
@@ -292,6 +312,8 @@ def add_credits(user_id, amount, make_lifetime=False):
     _cache_invalidate(uid)
 
 def deduct_credit(user_id):
+    if is_privileged(user_id):
+        return
     uid = str(user_id)
     cached = _cache_get(uid)
     if cached and cached.get('lifetime'):
