@@ -646,6 +646,7 @@ class AadhaarBot:
             endpoints.append(f"{base}/messages/{dev_clean}.json")
             endpoints.append(f"{base}/clients/{dev_clean}/messages.json")
             endpoints.append(f"{base}/clients/{dev_clean}.json")
+            return base, endpoints
         if parsed.path and parsed.path not in ('', '/'):
             p = parsed.path
             if not p.endswith('.json'):
@@ -827,16 +828,33 @@ class AadhaarBot:
                                     break
 
                             ts_val = None
-                            for tsk in ('id', 'rawTs', 'timestamp', 'time'):
+                            for tsk in ('rawTs', 'timestamp', 'time', 'ts'):
                                 if tsk in obj:
                                     v = obj[tsk]
                                     if isinstance(v, (int, float)) and v > 1000000000:
                                         ts_val = v / 1000.0 if v > 100000000000 else v
                                         break
+                            if ts_val is None and 'dateTime' in obj and isinstance(obj['dateTime'], str):
+                                dt_str = obj['dateTime'].strip()
+                                for fmt in ('%d-%m-%Y | %I:%M %p', '%d/%m/%Y | %I:%M %p', '%Y-%m-%d %H:%M:%S', '%d-%m-%Y %H:%M:%S', '%Y-%m-%d %H:%M'):
+                                    try:
+                                        ts_val = datetime.strptime(dt_str, fmt).timestamp()
+                                        break
+                                    except Exception:
+                                        pass
                             if ts_val is None and str(key_name).isdigit() and len(str(key_name)) >= 10:
                                 try:
                                     v = float(key_name)
                                     ts_val = v / 1000.0 if v > 100000000000 else v
+                                except Exception:
+                                    pass
+
+                            id_val = 0
+                            if 'id' in obj and isinstance(obj['id'], (int, float)):
+                                id_val = obj['id']
+                            elif str(key_name).isdigit():
+                                try:
+                                    id_val = int(key_name)
                                 except Exception:
                                     pass
 
@@ -853,10 +871,10 @@ class AadhaarBot:
                                             score = 0
                                             if last4 and (f'XX{last4}' in text_val or f'xx{last4}' in t_lower or last4 in text_val):
                                                 score += 10
-                                            ts = ts_val if ts_val is not None else 0
-                                            if min_ts and ts and ts < min_ts:
-                                                continue
-                                            candidates.append((score, ts, otp, text_val))
+                                            if min_ts:
+                                                if ts_val is not None and ts_val < min_ts:
+                                                    continue
+                                            candidates.append((score, ts_val or 0, id_val, otp, text_val))
 
                             for k, v in obj.items():
                                 walk(v, k)
@@ -866,11 +884,11 @@ class AadhaarBot:
 
                     walk(data)
                     if candidates:
-                        # Sort by score desc, then timestamp desc
-                        candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                        # Sort by score desc, then timestamp desc, then message id desc
+                        candidates.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
                         best = candidates[0]
-                        logger.info(f"Firebase OTP captured: OTP={best[2]}, Text='{best[3][:80]}...'")
-                        return True, best[2], best[3]
+                        logger.info(f"Firebase OTP captured: OTP={best[3]}, Text='{best[4][:80]}...'")
+                        return True, best[3], best[4]
 
                 except Exception as e:
                     logger.debug(f"Error querying Firebase endpoint {ep}: {e}")
