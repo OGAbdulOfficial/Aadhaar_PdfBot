@@ -219,6 +219,42 @@ def get_or_create_channel_link(bot_token: str, channel_username: str, default_li
         
     return default_link
 
+def get_channel_config(default_id="-1002894475319", default_link="https://t.me/+Vq7Ha3AVq4JjNTNl"):
+    try:
+        doc = mongo_db.bot_settings.find_one({"_id": "channel_config"})
+        if doc:
+            return {
+                "channel_id": str(doc.get("channel_id") or default_id),
+                "channel_link": str(doc.get("channel_link") or default_link),
+                "force_check": bool(doc.get("force_check", True))
+            }
+    except Exception as e:
+        logger.error(f"Error getting channel config: {e}")
+    return {
+        "channel_id": default_id,
+        "channel_link": default_link,
+        "force_check": True
+    }
+
+def set_channel_config(channel_id: str, channel_link: str, force_check: bool = None):
+    try:
+        update_data = {
+            "channel_id": str(channel_id).strip(),
+            "channel_link": str(channel_link).strip(),
+            "updated_at": datetime.now().isoformat()
+        }
+        if force_check is not None:
+            update_data["force_check"] = bool(force_check)
+        mongo_db.bot_settings.update_one(
+            {"_id": "channel_config"},
+            {"$set": update_data},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error setting channel config: {e}")
+        return False
+
 def get_user(user_id):
     uid = str(user_id)
     cached = _cache_get(uid)

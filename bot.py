@@ -77,9 +77,24 @@ BOT_NAME           = "🎁 ᴀᴀᴅʜᴀᴀʀ·ɢʀᴀᴍ"
 DIVIDER            = "━━━━━━━━━━━━━━━━━━━━━━━"
 OWNER_ID           = int(os.environ.get("OWNER_ID", "8267676849"))
 OWNER_USERNAME     = os.environ.get("OWNER_USERNAME", "@apifounder")
-FORCE_CHECK        = os.environ.get("FORCE_CHECK", "True").lower() in ("true", "1", "yes")
-CHANNEL_USERNAME   = os.environ.get("CHANNEL_USERNAME", "@AbdulBotzOfficial")
-CHANNEL_LINK       = os.environ.get("CHANNEL_LINK", "https://t.me/AbdulBotzOfficial")
+# Dynamic Channel Configuration with MongoDB persistence
+_init_ch = database.get_channel_config(
+    default_id=os.environ.get("CHANNEL_ID", "-1002894475319"),
+    default_link=os.environ.get("CHANNEL_LINK", "https://t.me/+Vq7Ha3AVq4JjNTNl")
+)
+CHANNEL_ID         = _init_ch.get("channel_id", "-1002894475319")
+CHANNEL_LINK       = _init_ch.get("channel_link", "https://t.me/+Vq7Ha3AVq4JjNTNl")
+FORCE_CHECK        = _init_ch.get("force_check", True)
+
+def get_channel_id():
+    return database.get_channel_config().get("channel_id", "-1002894475319")
+
+def get_channel_link():
+    return database.get_channel_config().get("channel_link", "https://t.me/+Vq7Ha3AVq4JjNTNl")
+
+def is_force_check_enabled():
+    return database.get_channel_config().get("force_check", True)
+
 SESSION_TIMEOUT    = 60
 
 # Parse Admin IDs
@@ -152,137 +167,83 @@ bot = bot_api
 # ============== CUSTOM EMOJIS & RAW EMOJI BOXING ==============
 # Emojis with verified Custom Emoji IDs get <tg-emoji>.
 # Every raw emoji without a custom ID is cleanly boxed in <code>emoji</code>.
-# Verified Custom Emojis provided by user
+# Verified Premium Custom Emojis (Telegram 7.0+)
 CUSTOM_EMOJIS = {
-    '1⃣': '6244317784738632020',
-    '1️⃣': '6244317784738632020',
-    '2⃣': '6242147417504879292',
-    '2️⃣': '6242147417504879292',
-    '3⃣': '6242172637552842445',
-    '3️⃣': '6242172637552842445',
-    '⏰': '6120870709435569478',
-    '⏰️': '6120870709435569478',
-    '⏱': '6264849643968929255',
-    '⏱️': '6264849643968929255',
-    '⏳': '6010111371251815589',
-    '⏳️': '6010111371251815589',
-    '♾': '5271934788037517525',
-    '♾️': '5271934788037517525',
-    '⚙': '5341715473882955310',
-    '⚙️': '5341715473882955310',
-    '⚠': '6242010768825391425',
-    '⚠️': '6242010768825391425',
-    '⚡': '6053062100773770516',
-    '⚡️': '6053062100773770516',
-    '⛔': '6122690040402289000',
-    '⛔️': '6122690040402289000',
-    '✅': '6237704110628413424',
-    '✅️': '6237704110628413424',
-    '✨': '6122954593207853337',
-    '✨️': '6122954593207853337',
-    '❌': '6111517649349383216',
-    '❌️': '6111517649349383216',
-    '⬇': '6305349171230545303',
-    '⬇️': '6305349171230545303',
-    '🆔': '5888781182249738113',
-    '🆔️': '5888781182249738113',
-    '🇮🇳': '6147942648511469492',
-    '🇮🇳️': '6147942648511469492',
-    '🌐': '4956560549287560231',
-    '🌐️': '4956560549287560231',
-    '🎁': '6269349038823316404',
-    '🎁️': '6269349038823316404',
-    '🎉': '6242319667168287353',
-    '🎉️': '6242319667168287353',
-    '🏛': '5350548830041415279',
-    '🏛️': '5350548830041415279',
-    '👆': '6242033978828658746',
-    '👆️': '6242033978828658746',
-    '👇': '6203868508594381101',
-    '👇️': '6203868508594381101',
-    '👑': '5803032306213982905',
-    '👑️': '5803032306213982905',
-    '👤': '4967667085606912536',
-    '👤️': '4967667085606912536',
-    '👥': '5258513401784573443',
-    '👥️': '5258513401784573443',
-    '💎': '5891044423856296980',
-    '💎️': '5891044423856296980',
-    '💡': '5422439311196834318',
-    '💡️': '5422439311196834318',
-    '💰': '6235459831302460476',
-    '💰️': '6235459831302460476',
-    '💳': '6019224342666157570',
-    '💳️': '6019224342666157570',
-    '💵': '5926961826603472005',
-    '💵️': '5926961826603472005',
-    '📄': '5258477770735885832',
-    '📄️': '5258477770735885832',
-    '📅': '5800810214689084012',
-    '📅️': '5800810214689084012',
-    '📊': '4958506272551863292',
-    '📊️': '4958506272551863292',
-    '📋': '5926764846518376076',
-    '📋️': '5926764846518376076',
-    '📌': '5801018335919347111',
-    '📌️': '5801018335919347111',
-    '📝': '5974045315391556490',
-    '📝️': '5974045315391556490',
-    '📢': '4967957395331351254',
-    '📢️': '4967957395331351254',
-    '📤': '6276057489976858389',
-    '📤️': '6276057489976858389',
-    '📬': '5953835475629251780',
-    '📬️': '5953835475629251780',
-    '📱': '5409357944619802453',
-    '📱️': '5409357944619802453',
-    '📲': '6068736897453138620',
-    '📲️': '6068736897453138620',
-    '🔄': '4956371914323920049',
-    '🔄️': '4956371914323920049',
-    '🔍': '4958587679361991667',
-    '🔍️': '4958587679361991667',
-    '🔐': '6080214566191505147',
-    '🔐️': '6080214566191505147',
-    '🔑': '5454386656628991407',
-    '🔑️': '5454386656628991407',
-    '🔒': '5393302369024882368',
-    '🔒️': '5393302369024882368',
-    '🔓': '5890882606668452641',
-    '🔓️': '5890882606668452641',
-    '🔗': '6113813004426416777',
-    '🔗️': '6113813004426416777',
+    '⚡': '5456140674028019486',
+    '⚡️': '5456140674028019486',
+    '📱': '6201882038975341348',
+    '📱️': '6201882038975341348',
+    '🪪': '5890864241388293875',
+    '🪪️': '5890864241388293875',
     '🔢': '5226513232549664618',
     '🔢️': '5226513232549664618',
-    '🔥': '6129774210999915643',
-    '🔥️': '6129774210999915643',
-    '🖼': '5257974976094412956',
-    '🖼️': '5257974976094412956',
-    '🚀': '6276144793777084491',
-    '🚀️': '6276144793777084491',
-    '🚫': '5240241223632954241',
-    '🚫️': '5240241223632954241',
-    '🛑': '6237753687435910268',
-    '🛑️': '6237753687435910268',
+    '💎': '5427168083074628963',
+    '💎️': '5427168083074628963',
     '🛒': '5258024802010026053',
     '🛒️': '5258024802010026053',
-    '🛡': '6122834518807157701',
-    '🛡️': '6122834518807157701',
-    '🟢': '4958920483492857102',
-    '🟢️': '4958920483492857102',
-    '🪪': '5418115271267197333',
-    '🪪️': '5418115271267197333'
+    '🔗': '6113813004426416777',
+    '🔗️': '6113813004426416777',
+    '❓': '5436113877181941026',
+    '❓️': '5436113877181941026',
+    '📢': '6305206294848475991',
+    '📢️': '6305206294848475991',
+    '✅': '6275829594717165532',
+    '✅️': '6275829594717165532',
+    '❌': '6305324410744084248',
+    '❌️': '6305324410744084248',
+    '👑': '6237927637906364256',
+    '👑️': '6237927637906364256',
+    '💰': '6244678063775289843',
+    '💰️': '6244678063775289843',
+    '👤': '6305229569276254220',
+    '👤️': '6305229569276254220',
+    '⏳': '5386367538735104399',
+    '⏳️': '5386367538735104399',
+    '🔄': '5030872266716480568',
+    '🔄️': '5030872266716480568',
+    '🔐': '5296369303661067030',
+    '🔐️': '5296369303661067030',
+    '🔑': '5296369303661067030',
+    '🔑️': '5296369303661067030',
+    '🔒': '4956719506027185156',
+    '🔒️': '4956719506027185156',
+    '🔓': '5890882606668452641',
+    '🔓️': '5890882606668452641',
+    '📄': '5258477770735885832',
+    '📄️': '5258477770735885832',
+    '⭐': '5372849966689566579',
+    '⭐️': '5372849966689566579',
+    '🚀': '5359664288241829619',
+    '🚀️': '5359664288241829619',
+    '🛡': '6235476345451716705',
+    '🛡️': '6235476345451716705',
+    '⚠️': '5274099962655816924',
+    '⚠': '5274099962655816924',
+    '🎁': '5084613633418199991',
+    '🎁️': '5084613633418199991',
+    '🔥': '5289722755871162900',
+    '🔥️': '5289722755871162900',
+    '🥷': '5289722755871162900',
+    '1️⃣': '6141182593325862850',
+    '2️⃣': '6140858267460440006',
+    '3️⃣': '6140761832559742520',
+    '4️⃣': '6143358763060433247',
+    '5️⃣': '6140671341893784411',
+    '📅': '6235449188373502693',
+    '📋': '5203910550542631009',
+    '📌': '5397782960512444700',
+    '🔍': '5362061893605279054',
+    '🔙': '6276030448862763508',
+    '👋': '6204139486671019705',
+    '🇮🇳': '6147942648511469492',
+    '🇮🇳️': '6147942648511469492',
 }
 
 def format_custom_emojis(text):
     if not text or not isinstance(text, str):
         return text
 
-    # Step 1: Clean any existing duplicate/nested code tags
-    text = re.sub(r'<code>\s*(<code>)+', '<code>', text)
-    text = re.sub(r'(</code>\s*)+</code>', '</code>', text)
-
-    # Step 2: Protect any already boxed <code>...</code> or <tg-emoji> tags
+    # Protect pre-existing code and tg-emoji blocks
     saved_blocks = {}
     def save_block(m):
         tok = f"__SAVED_BLK_{len(saved_blocks)}__"
@@ -292,7 +253,7 @@ def format_custom_emojis(text):
     text = re.sub(r'<code>[\s\S]*?</code>', save_block, text)
     text = re.sub(r'<tg-emoji[\s\S]*?</tg-emoji>', save_block, text)
 
-    # Step 3: Handle verified custom emojis if provided
+    # Replace verified emojis with <tg-emoji>
     if CUSTOM_EMOJIS:
         sorted_emojis = sorted(CUSTOM_EMOJIS.keys(), key=len, reverse=True)
         for i, em in enumerate(sorted_emojis):
@@ -302,13 +263,7 @@ def format_custom_emojis(text):
                 saved_blocks[tok] = f'<tg-emoji emoji-id="{eid}">{em}</tg-emoji>'
                 text = text.replace(em, tok)
 
-    # Step 4: Every raw emoji without custom ID gets a clean single <code>box</code>
-    try:
-        text = emoji.replace_emoji(text, replace=lambda c, d: f'<code>{c}</code>')
-    except Exception:
-        pass
-
-    # Step 5: Restore all protected blocks
+    # Restore all protected blocks
     for tok, orig in saved_blocks.items():
         text = text.replace(tok, orig)
 
@@ -368,7 +323,7 @@ def _cleanup_sessions():
                         f"✅  ᴄʀᴇᴅɪᴛs  ·  ɴᴏᴛ ᴅᴇᴅᴜᴄᴛᴇᴅ\n\n"
                         f"{DIVIDER}\n"
                         f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴀɢᴀɪɴ.</i>",
-                        reply_markup=get_main_keyboard()
+                        reply_markup=get_menu_keyboard()
                     )
                 except Exception:
                     pass
@@ -382,7 +337,7 @@ _cm_lock = threading.Lock()
 CM_CACHE_TTL = 180.0  # 3 minutes cache for channel members
 
 def is_channel_member(user_id):
-    if not FORCE_CHECK:
+    if not is_force_check_enabled():
         return True
     uid = str(user_id)
     with _cm_lock:
@@ -390,8 +345,9 @@ def is_channel_member(user_id):
         if item and (time.time() - item['t']) < CM_CACHE_TTL:
             return item['is_member']
 
+    ch_id = get_channel_id()
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
-    params = {'chat_id': CHANNEL_USERNAME, 'user_id': user_id}
+    params = {'chat_id': ch_id, 'user_id': user_id}
     try:
         response = get_telegram_session().get(url, params=params, timeout=5).json()
         if response.get('ok'):
@@ -400,12 +356,30 @@ def is_channel_member(user_id):
             with _cm_lock:
                 _channel_member_cache[uid] = {'t': time.time(), 'is_member': is_mem}
             return is_mem
+
+        desc = response.get('description', '')
+        # If bot is not in the channel or chat not found, avoid total lock-out
+        if 'chat not found' in desc.lower() or 'bot is not a member' in desc.lower():
+            logger.warning(f"Bot cannot check membership in {ch_id}: {desc}. Please ensure bot is added as Administrator to channel.")
+            return True
+
         with _cm_lock:
             _channel_member_cache[uid] = {'t': time.time(), 'is_member': False}
         return False
     except Exception as e:
         logger.error(f"Error checking channel membership: {e}")
         return True
+
+def remove_reply_keyboard(chat_id):
+    """Sends a quick temporary message with remove_keyboard to ensure Telegram client closes bottom keyboard."""
+    try:
+        res = send_message(chat_id, "<i>⚡ ʟᴏᴀᴅɪɴɢ…</i>", reply_markup={'remove_keyboard': True})
+        if res and res.get('ok'):
+            mid = res.get('result', {}).get('message_id')
+            if mid:
+                delete_message(chat_id, mid)
+    except Exception as e:
+        logger.debug(f"Error removing keyboard: {e}")
 
 _bot_username = None
 def get_bot_username():
@@ -518,21 +492,19 @@ def send_document(chat_id, file_path, caption=None, filename="Aadhaar.pdf"):
         logger.error(f"Error sending document: {e}")
         return None
 
-# ============== KEYBOARDS (SMALL CAPS & 2-BUTTON PAYMENT) ==============
+# ============== KEYBOARDS (SMALL CAPS & 100% INLINE) ==============
 def get_main_keyboard():
+    # Deprecated reply keyboard: ensures client drops any persistent bottom keyboard
+    return {'remove_keyboard': True}
+
+def get_menu_keyboard():
     return {
-        'keyboard': [
-            [{'text': 'ᴍᴏʙɪʟᴇ ɴᴜᴍʙᴇʀ', 'icon_custom_emoji_id': '5409357944619802453', 'style': 'primary'},
-             {'text': 'ᴀᴀᴅʜᴀᴀʀ ɴᴜᴍʙᴇʀ', 'icon_custom_emoji_id': '5418115271267197333', 'style': 'primary'}],
-            [{'text': 'ᴇɪᴅ', 'icon_custom_emoji_id': '5226513232549664618', 'style': 'primary'},
-             {'text': '🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ', 'style': 'primary'}],
-            [{'text': 'ᴄʀᴇᴅɪᴛs', 'icon_custom_emoji_id': '5891044423856296980', 'style': 'success'},
-             {'text': 'ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'icon_custom_emoji_id': '5258024802010026053', 'style': 'success'}],
-            [{'text': 'ʀᴇғᴇʀʀᴀʟ', 'icon_custom_emoji_id': '6113813004426416777', 'style': 'primary'},
-             {'text': '❓ ʜᴇʟᴘ', 'style': 'primary'}],
-        ],
-        'resize_keyboard': True,
-        'one_time_keyboard': False
+        'inline_keyboard': [
+            [
+                {'text': '🔄 ᴍᴀɪɴ ᴍᴇɴᴜ', 'callback_data': 'start', 'style': 'primary'},
+                {'text': '🛒 ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'style': 'success'}
+            ]
+        ]
     }
 
 def get_welcome_inline_keyboard():
@@ -552,8 +524,7 @@ def get_welcome_inline_keyboard():
                 {'text': '🔗 ʀᴇғᴇʀʀᴀʟ', 'callback_data': 'referral', 'style': 'primary'}
             ],
             [
-                {'text': '❓ ʜᴇʟᴘ & ɢᴜɪᴅᴇ', 'callback_data': 'help', 'style': 'primary'},
-                {'text': '📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': CHANNEL_LINK}
+                {'text': '❓ ʜᴇʟᴘ & ɢᴜɪᴅᴇ', 'callback_data': 'help', 'style': 'primary'}
             ]
         ]
     }
@@ -564,11 +535,11 @@ def get_cancel_keyboard():
 def get_buy_keyboard():
     return {
         'inline_keyboard': [
-            [{'text': '25 ᴄʀᴇᴅɪᴛs — ₹50', 'callback_data': 'buy_50', 'style': 'primary', 'icon_custom_emoji_id': '6053062100773770516'},
-             {'text': '60 ᴄʀᴇᴅɪᴛs — ₹100', 'callback_data': 'buy_100', 'style': 'success', 'icon_custom_emoji_id': '6129774210999915643'}],
-            [{'text': '160 ᴄʀᴇᴅɪᴛs — ₹250', 'callback_data': 'buy_250', 'style': 'primary', 'icon_custom_emoji_id': '5891044423856296980'},
-             {'text': 'ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ — ₹500', 'callback_data': 'buy_500', 'style': 'success', 'icon_custom_emoji_id': '5803032306213982905'}],
-            [{'text': 'ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}]
+            [{'text': '25 ᴄʀᴇᴅɪᴛs — ₹50', 'callback_data': 'buy_50', 'style': 'primary'},
+             {'text': '60 ᴄʀᴇᴅɪᴛs — ₹100', 'callback_data': 'buy_100', 'style': 'success'}],
+            [{'text': '160 ᴄʀᴇᴅɪᴛs — ₹250', 'callback_data': 'buy_250', 'style': 'primary'},
+             {'text': 'ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ — ₹500', 'callback_data': 'buy_500', 'style': 'success'}],
+            [{'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}]
         ]
     }
 
@@ -608,7 +579,7 @@ def get_help_keyboard():
             ],
             [
                 {'text': '📞 ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ', 'url': f"https://t.me/{OWNER_USERNAME.lstrip('@')}"},
-                {'text': '📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': CHANNEL_LINK}
+                {'text': '📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': get_channel_link()}
             ],
             [
                 {'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}
@@ -617,31 +588,54 @@ def get_help_keyboard():
     }
 
 def get_channel_invite_url():
-    """Retrieves or creates the bot's tracked invite link for the channel."""
-    return database.get_or_create_channel_link(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, CHANNEL_LINK)
+    """Retrieves current channel invite link."""
+    return get_channel_link()
 
 def get_join_keyboard():
-    invite_url = get_channel_invite_url()
     return {
         'inline_keyboard': [
-            [{'text': 'ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ',    'url': invite_url, 'style': 'primary'}],
-            [{'text': 'ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ',   'callback_data': 'check_join', 'style': 'success'}],
+            [{'text': '📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': get_channel_link(), 'style': 'primary'}],
+            [{'text': '✅ ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ',    'callback_data': 'check_join', 'style': 'success'}],
         ]
     }
 
 def get_admin_keyboard():
+    fc_status = "✅ ON" if is_force_check_enabled() else "❌ OFF"
     return {
         'inline_keyboard': [
-            [{'text': 'sᴛᴀᴛɪsᴛɪᴄs',       'callback_data': 'admin_stats', 'style': 'primary'},
-             {'text': 'ᴜsᴇʀ ʟɪsᴛ',        'callback_data': 'admin_users', 'style': 'primary'}],
-            [{'text': 'ɢʀᴀɴᴛ ᴄʀᴇᴅɪᴛs',    'callback_data': 'admin_send_prompt', 'style': 'success'},
-             {'text': 'ᴜsᴇʀ ʟᴏᴏᴋᴜᴘ',      'callback_data': 'admin_userinfo_prompt', 'style': 'primary'}],
-            [{'text': 'ʙᴀɴ ᴜsᴇʀ',         'callback_data': 'admin_ban_prompt', 'style': 'danger'},
-             {'text': 'ᴜɴʙᴀɴ ᴜsᴇʀ',       'callback_data': 'admin_unban_prompt', 'style': 'success'}],
-            [{'text': 'ʙʀᴏᴀᴅᴄᴀsᴛ',        'callback_data': 'admin_broadcast_prompt', 'style': 'primary'}],
-            [{'text': 'ғᴏʀᴄᴇ ᴊᴏɪɴ',       'callback_data': 'admin_toggle_force_check', 'style': 'primary'}],
+            [{'text': '📊 sᴛᴀᴛɪsᴛɪᴄs',       'callback_data': 'admin_stats', 'style': 'primary'},
+             {'text': '👥 ᴜsᴇʀ ʟɪsᴛ',        'callback_data': 'admin_users', 'style': 'primary'}],
+            [{'text': '🎁 ɢʀᴀɴᴛ ᴄʀᴇᴅɪᴛs',    'callback_data': 'admin_send_prompt', 'style': 'success'},
+             {'text': '🔍 ᴜsᴇʀ ʟᴏᴏᴋᴜᴘ',      'callback_data': 'admin_userinfo_prompt', 'style': 'primary'}],
+            [{'text': '🚫 ʙᴀɴ ᴜsᴇʀ',         'callback_data': 'admin_ban_prompt', 'style': 'danger'},
+             {'text': '✅ ᴜɴʙᴀɴ ᴜsᴇʀ',       'callback_data': 'admin_unban_prompt', 'style': 'success'}],
+            [{'text': '📢 ᴄʜᴀɴɴᴇʟ sᴇᴛᴛɪɴɢs', 'callback_data': 'admin_channel_menu', 'style': 'primary'},
+             {'text': '📣 ʙʀᴏᴀᴅᴄᴀsᴛ',        'callback_data': 'admin_broadcast_prompt', 'style': 'primary'}],
+            [{'text': f'🔘 ғᴏʀᴄᴇ ᴊᴏɪɴ: {fc_status}', 'callback_data': 'admin_toggle_force_check', 'style': 'primary'}],
         ]
     }
+
+def show_admin_channel_menu(chat_id):
+    cfg = database.get_channel_config()
+    ch_id = cfg.get("channel_id", "-1002894475319")
+    ch_link = cfg.get("channel_link", "https://t.me/+Vq7Ha3AVq4JjNTNl")
+    fc_txt = "✅ ON" if cfg.get("force_check", True) else "❌ OFF"
+    send_message(
+        chat_id,
+        f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+        f"<b>📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ sᴇᴛᴛɪɴɢs</b>\n\n"
+        f"🆔  <b>ᴄʜᴀɴɴᴇʟ ɪᴅ:</b> <code>{ch_id}</code>\n"
+        f"🔗  <b>ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b> {ch_link}\n"
+        f"🛡️  <b>ғᴏʀᴄᴇ ᴊᴏɪɴ:</b> {fc_txt}\n\n"
+        f"<i>💡 ʙᴏᴛ ᴋᴏ ᴄʜᴀɴɴᴇʟ ᴍᴀɪɴ ᴀᴅᴍɪɴɪsᴛʀᴀᴛᴏʀ ʙᴀɴᴀɴᴀ ᴢᴀʀᴏᴏʀɪ ʜᴀɪ.</i>",
+        reply_markup={
+            'inline_keyboard': [
+                [{'text': '✏️ ᴄʜᴀɴɢᴇ ᴄʜᴀɴɴᴇʟ', 'callback_data': 'admin_change_channel_prompt', 'style': 'primary'}],
+                [{'text': f'🔘 ᴛᴏɢɢʟᴇ ғᴏʀᴄᴇ ᴊᴏɪɴ ({fc_txt})', 'callback_data': 'admin_toggle_force_check', 'style': 'primary'}],
+                [{'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ', 'callback_data': 'admin_back', 'style': 'danger'}]
+            ]
+        }
+    )
 
 # PAYMENT SCREEN KEYBOARD (CHECK STATUS & CANCEL)
 def get_payment_keyboard(plan_key):
@@ -732,14 +726,14 @@ def show_help(chat_id):
 
 # ============== GATES ==============
 def channel_gate(chat_id):
-    if FORCE_CHECK and not is_channel_member(chat_id):
+    if is_force_check_enabled() and not is_channel_member(chat_id):
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>📢 ᴄʜᴀɴɴᴇʟ ʀᴇǫᴜɪʀᴇᴅ</b>\n\n"
-            f"🔒  ᴊᴏɪɴ <b>{CHANNEL_USERNAME}</b> ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ.\n\n"
+            f"<b>📢 ᴊᴏɪɴ ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ</b>\n\n"
+            f"🔒  ʙᴏᴛ ᴋᴏ ᴜsᴇ ᴋᴀʀɴᴇ ᴋᴇ ʟɪʏᴇ ʜᴜᴍᴀʀᴇ ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ ᴋᴏ ᴊᴏɪɴ ᴋᴀʀɴᴀ ᴢᴀʀᴏᴏʀɪ ʜᴀɪ.\n\n"
             f"{DIVIDER}\n"
-            f"<i>👇  ᴛᴀᴘ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴀғᴛᴇʀ ᴊᴏɪɴɪɴɢ.</i>",
+            f"<i>👇  ɴᴇᴇᴄʜᴇ ᴅɪʏᴇ ɢᴀʏᴇ ʙᴜᴛᴛᴏɴ sᴇ ᴊᴏɪɴ ᴋᴀʀᴇɪɴ ᴀᴜʀ '✅ ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ' ᴅᴀʙᴀʏᴇɪɴ.</i>",
             reply_markup=get_join_keyboard()
         )
         return False
@@ -834,7 +828,7 @@ def deliver_pdf(chat_id, pdf_path, verified_name):
         f"💰  ᴄʀᴇᴅɪᴛs ʀᴇᴍᴀɪɴɪɴɢ  ·  <b>{cr_display}</b>\n\n"
         f"{DIVIDER}\n"
         f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ғᴏʀ ᴀɴᴏᴛʜᴇʀ ᴅᴏᴡɴʟᴏᴀᴅ.</i>",
-        reply_markup=get_main_keyboard()
+        reply_markup=get_welcome_inline_keyboard()
     )
 
 def _handle_firebase_download_worker(chat_id, mobile, fb_url):
@@ -866,7 +860,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
                 f"❌  <b>ᴏᴛᴘ 1 ʀᴇǫᴜᴇsᴛ ғᴀɪʟᴇᴅ</b>\n\n"
                 f"⚠️  {html.escape(err_text)}\n\n"
                 f"{DIVIDER}",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -897,7 +891,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
                 f"⚠️  ɴᴏ ᴀᴀᴅʜᴀᴀʀ ᴏᴛᴘ ᴡᴀs ᴅᴇᴛᴇᴄᴛᴇᴅ ɪɴ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ᴅʙ ᴡɪᴛʜɪɴ 75 sᴇᴄᴏɴᴅs.\n"
                 f"💡  <i>ᴍᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ᴛᴀʀɢᴇᴛ ᴅᴇᴠɪᴄᴇ ɪs ᴏɴʟɪɴᴇ ᴀɴᴅ sʏɴᴄɪɴɢ sᴍs ᴛᴏ ғɪʀᴇʙᴀsᴇ.</i>\n\n"
                 f"{DIVIDER}",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -927,7 +921,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
                 f"❌  <b>ᴏᴛᴘ 1 ᴠᴇʀɪғɪᴄᴀᴛɪᴏɴ ғᴀɪʟᴇᴅ</b>\n\n"
                 f"⚠️  {html.escape(str(verified_name or 'Invalid OTP'))}\n\n"
                 f"{DIVIDER}",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -959,7 +953,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
                 f"❌  <b>ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ 2 ғᴀɪʟᴇᴅ</b>\n\n"
                 f"⚠️  {html.escape(str(err2))}\n\n"
                 f"{DIVIDER}",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -989,7 +983,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
                 f"<b>⏱️ ᴏᴛᴘ 2 ᴛɪᴍᴇᴏᴜᴛ</b>\n\n"
                 f"⚠️  ɴᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴏᴛᴘ ᴡᴀs ᴅᴇᴛᴇᴄᴛᴇᴅ ɪɴ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ᴅʙ ᴡɪᴛʜɪɴ 75 sᴇᴄᴏɴᴅs.\n\n"
                 f"{DIVIDER}",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -1016,7 +1010,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
                 f"❌  <b>ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ</b>\n\n"
                 f"⚠️  {html.escape(str(result or 'UIDAI download failed'))}\n\n"
                 f"{DIVIDER}",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -1032,7 +1026,7 @@ def _handle_firebase_download_worker(chat_id, mobile, fb_url):
             f"❌  <b>ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ</b>\n\n"
             f"⚠️  {html.escape(str(e))}\n\n"
             f"{DIVIDER}",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_menu_keyboard()
         )
 
 # ============== ADMIN PANEL ==============
@@ -1045,7 +1039,7 @@ def show_admin_panel(chat_id):
     lifetime_count = sum(1 for u in data.values() if u.get('lifetime'))
     banned_count   = sum(1 for u in data.values() if u.get('banned'))
     total_credits  = sum(u.get('credits', 0) for u in data.values() if not u.get('lifetime'))
-    status_fc      = "<b>ON</b>" if FORCE_CHECK else "<b>OFF</b>"
+    status_fc      = "<b>ON</b>" if is_force_check_enabled() else "<b>OFF</b>"
     send_message(
         chat_id,
         f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -1066,6 +1060,29 @@ def handle_admin_command(chat_id, text):
         show_admin_panel(chat_id)
         return True
 
+    if parts[0] in ('/channel', '/channels'):
+        show_admin_channel_menu(chat_id)
+        return True
+
+    if parts[0] == '/setchannel' and len(parts) >= 3:
+        new_ch_id = parts[1].strip()
+        new_ch_link = parts[2].strip()
+        ok = database.set_channel_config(new_ch_id, new_ch_link)
+        if ok:
+            with _cm_lock:
+                _channel_member_cache.clear()
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"✅ <b>ᴄʜᴀɴɴᴇʟ sᴜᴄᴄᴇssғᴜʟʟʏ ᴜᴘᴅᴀᴛᴇᴅ!</b>\n\n"
+                f"🆔  <b>ᴄʜᴀɴɴᴇʟ ɪᴅ:</b> <code>{new_ch_id}</code>\n"
+                f"🔗  <b>ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b> {new_ch_link}"
+            )
+            show_admin_channel_menu(chat_id)
+        else:
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Error saving channel configuration.")
+        return True
+
     if parts[0] == '/send' and len(parts) == 3:
         try:
             target_id = int(parts[1])
@@ -1073,11 +1090,11 @@ def handle_admin_command(chat_id, text):
             if amount == -1:
                 add_credits(target_id, 0, make_lifetime=True)
                 send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>✅ ɢʀᴀɴᴛᴇᴅ ʟɪғᴇᴛɪᴍᴇ ᴛᴏ <code>{target_id}</code></b>")
-                send_message(target_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>🎁 ɢʀᴀɴᴛᴇᴅ ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ!</b>", reply_markup=get_main_keyboard())
+                send_message(target_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>🎁 ɢʀᴀɴᴛᴇᴅ ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ!</b>", reply_markup=get_welcome_inline_keyboard())
             else:
                 add_credits(target_id, amount)
                 send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>✅ sᴇɴᴛ {amount} ᴄʀᴇᴅɪᴛs ᴛᴏ <code>{target_id}</code></b>")
-                send_message(target_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>🎁 ʀᴇᴄᴇɪᴠᴇᴅ +{amount} ᴄʀᴇᴅɪᴛs!</b>", reply_markup=get_main_keyboard())
+                send_message(target_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>🎁 ʀᴇᴄᴇɪᴠᴇᴅ +{amount} ᴄʀᴇᴅɪᴛs!</b>", reply_markup=get_welcome_inline_keyboard())
         except ValueError:
             send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Usage: /send USERID AMOUNT (-1 for lifetime)")
         return True
@@ -1245,7 +1262,7 @@ def _auto_check_payment_worker(chat_id, plan_key, amount, qr_msg_id, session_tok
                         f"💰  <b>ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ</b>  ·  <b>{cr_display}</b>\n\n"
                         f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>"
                     )
-                    sent_resp = send_message(chat_id, success_text, reply_markup=get_main_keyboard())
+                    sent_resp = send_message(chat_id, success_text, reply_markup=get_welcome_inline_keyboard())
                     sent_mid = sent_resp.get('result', {}).get('message_id') if (sent_resp and isinstance(sent_resp, dict)) else None
                     if sent_mid:
                         set_message_reaction(chat_id, message_id=sent_mid, emoji="🎉")
@@ -1265,7 +1282,7 @@ def _auto_check_payment_worker(chat_id, plan_key, amount, qr_msg_id, session_tok
             f"<b>⏰ ᴘᴀʏᴍᴇɴᴛ sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ</b>\n\n"
             f"⚠️  ᴛʜᴇ 10-ᴍɪɴᴜᴛᴇ ᴄʜᴇᴄᴋᴏᴜᴛ ᴡɪɴᴅᴏᴡ ʜᴀs ᴇxᴘɪʀᴇᴅ.\n"
             f"💡  <i>ɪғ ʏᴏᴜ ᴀʟʀᴇᴀᴅʏ ᴘᴀɪᴅ, sɪᴍᴘʟʏ sᴇɴᴅ ʏᴏᴜʀ 12-ᴅɪɢɪᴛ ᴜᴛʀ ʜᴇʀᴇ ᴀᴛ ᴀɴʏ ᴛɪᴍᴇ!</i>",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_welcome_inline_keyboard()
         )
 
 # ============== CALLBACK HANDLER ==============
@@ -1283,9 +1300,56 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
         )
 
     if data == 'admin_toggle_force_check' and is_admin(chat_id):
-        global FORCE_CHECK
-        FORCE_CHECK = not FORCE_CHECK
+        answer_callback_query(callback_query_id)
+        cfg = database.get_channel_config()
+        new_fc = not cfg.get("force_check", True)
+        database.set_channel_config(cfg.get("channel_id"), cfg.get("channel_link"), force_check=new_fc)
+        with _cm_lock:
+            _channel_member_cache.clear()
         show_admin_panel(chat_id)
+        return
+
+    if data == 'admin_channel_menu' and is_admin(chat_id):
+        answer_callback_query(callback_query_id)
+        show_admin_channel_menu(chat_id)
+        return
+
+    if data == 'admin_change_channel_prompt' and is_admin(chat_id):
+        answer_callback_query(callback_query_id)
+        set_session(chat_id, 'admin_awaiting_channel')
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"✏️ <b>ɴᴇᴡ ᴄʜᴀɴɴᴇʟ ɪᴅ ᴀᴜʀ ɪɴᴠɪᴛᴇ ʟɪɴᴋ ʙʜᴇᴊᴏ:</b>\n\n"
+            f"📋 <b>ғᴏʀᴍᴀᴛ:</b>\n<code>CHANNEL_ID INVITE_LINK</code>\n\n"
+            f"<i>ᴇxᴀᴍᴘʟᴇ:</i>\n<code>-1002894475319 https://t.me/+Vq7Ha3AVq4JjNTNl</code>",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+
+    if data == 'admin_back' and is_admin(chat_id):
+        answer_callback_query(callback_query_id)
+        show_admin_panel(chat_id)
+        return
+
+    if data in ('start', 'main_menu'):
+        answer_callback_query(callback_query_id)
+        clear_session(chat_id)
+        remove_reply_keyboard(chat_id)
+        cr = get_credits(chat_id)
+        cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
+            f"<b>🇮🇳 ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ — sᴛʀᴀɪɢʜᴛ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ</b>\n\n"
+            f"⚡  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
+            f"🔓  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
+            f"⚡  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ  ·  ғɪʀᴇʙᴀsᴇ\n\n"
+            f"{DIVIDER}\n"
+            f"💰  ᴄʀᴇᴅɪᴛs  ·  <b>{cr_display}</b>\n\n"
+            f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ ʙᴇɢɪɴ.</i>",
+            reply_markup=get_welcome_inline_keyboard()
+        )
         return
 
     if data == 'admin_stats' and is_admin(chat_id):
@@ -1363,7 +1427,7 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
         # Clear member cache so Telegram is queried freshly for this check
         with _cm_lock:
             _channel_member_cache.pop(str(chat_id), None)
-        if not FORCE_CHECK or is_channel_member(chat_id):
+        if not is_force_check_enabled() or is_channel_member(chat_id):
             database.mark_channel_verified(chat_id)
             if user_info:
                 ensure_user(
@@ -1376,18 +1440,14 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
                 ensure_user(chat_id)
             cr = get_credits(chat_id)
             cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
-            send_message(
-                chat_id,
-                f"<i>👋  ᴡᴇʟᴄᴏᴍᴇ! sᴇʟᴇᴄᴛ ᴀɴ ᴏᴘᴛɪᴏɴ ʙᴇʟᴏᴡ:</i>",
-                reply_markup=get_main_keyboard()
-            )
+            remove_reply_keyboard(chat_id)
             send_message(
                 chat_id,
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
                 f"<b>🇮🇳 ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ — sᴛʀᴀɪɢʜᴛ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ</b>\n\n"
-                f"🏛️  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
-                f"📬  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
-                f"🔑  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ  ·  ғɪʀᴇʙᴀsᴇ\n\n"
+                f"⚡  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
+                f"🔓  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
+                f"⚡  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ  ·  ғɪʀᴇʙᴀsᴇ\n\n"
                 f"{DIVIDER}\n"
                 f"💰  ᴄʀᴇᴅɪᴛs  ·  <b>{cr_display}</b>\n\n"
                 f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ ʙᴇɢɪɴ.</i>",
@@ -1413,7 +1473,13 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
             delete_message(chat_id, message_id)
         clear_session(chat_id)
         answer_callback_query(callback_query_id, "Cancelled")
-        send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>❌  sᴇssɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.</i>", reply_markup=get_main_keyboard())
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"<i>❌  sᴇssɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.</i>\n\n"
+            f"<i>📲  sᴇʟᴇᴄᴛ ᴀɴ ᴏᴘᴛɪᴏɴ ʙᴇʟᴏᴡ:</i>",
+            reply_markup=get_welcome_inline_keyboard()
+        )
         return
 
     if data == 'credits':
@@ -1457,7 +1523,7 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
             f"<b>🛒 ᴜᴘɪ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴄʜᴇᴄᴋᴏᴜᴛ</b>\n\n"
             f"💎  <b>ᴘʟᴀɴ</b>       ·  {plan['label']}\n"
             f"💵  <b>ᴀᴍᴏᴜɴᴛ</b>     ·  <b>{plan['price']}</b>\n"
-            f"🏛️  <b>ᴘᴀʏᴇᴇ</b>      ·  <b>{pay_meta.get('payee_name', 'Faisal Abdul Aziz Ansari')}</b>\n"
+            f"👤  <b>ᴘᴀʏᴇᴇ</b>      ·  <b>{pay_meta.get('payee_name', 'Faisal Abdul Aziz Ansari')}</b>\n"
             f"📱  <b>ᴜᴘɪ ɪᴅ</b>     ·  <code>{pay_meta.get('payee_vpa', 'faisal786786@fam')}</code>\n"
             f"⏳  <b>ᴠᴀʟɪᴅɪᴛʏ</b>   ·  <b>10:00 ᴍɪɴᴜᴛᴇs</b> <i>(ᴀᴜᴛᴏ-ᴄʜᴇᴄᴋɪɴɢ 🔄)</i>\n\n"
             f"{DIVIDER}\n"
@@ -1527,7 +1593,7 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
                     f"💰  <b>ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ</b>  ·  <b>{cr_display}</b>\n\n"
                     f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>"
                 )
-                sent_resp = send_message(chat_id, success_text, reply_markup=get_main_keyboard())
+                sent_resp = send_message(chat_id, success_text, reply_markup=get_welcome_inline_keyboard())
                 sent_mid = sent_resp.get('result', {}).get('message_id') if (sent_resp and isinstance(sent_resp, dict)) else None
                 if sent_mid:
                     set_message_reaction(chat_id, message_id=sent_mid, emoji="🎉")
@@ -1583,13 +1649,17 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
             reply_markup=get_cancel_keyboard()
         )
     elif data == 'search_firebase':
-        set_session(chat_id, 'awaiting_fb_mobile', {'mode': 'firebase'})
+        set_session(chat_id, 'awaiting_fb_url', {'mode': 'firebase'})
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
             f"<b>🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ</b>\n\n"
-            f"▸  <b>ᴇɴᴛᴇʀ ᴛᴀʀɢᴇᴛ 10-ᴅɪɢɪᴛ ᴍᴏʙɪʟᴇ ɴᴜᴍʙᴇʀ:</b>\n\n"
-            f"<i>💡  ᴛʜɪs ɴᴜᴍʙᴇʀ ᴍᴜsᴛ ʙᴇ ʟɪɴᴋᴇᴅ ᴛᴏ ᴀᴀᴅʜᴀᴀʀ &amp; ʀᴇᴄᴇɪᴠɪɴɢ sᴍs ᴏɴ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ᴅᴀᴛᴀʙᴀsᴇ.</i>",
+            f"🌐  <b>ғɪʀᴇʙᴀsᴇ ʀᴛᴅʙ ᴜʀʟ ʙʜᴇᴊᴏ:</b>\n\n"
+            f"📋  <i>ᴇxᴀᴍᴘʟᴇs:</i>\n"
+            f"• <code>https://my-panel-default-rtdb.firebaseio.com</code>\n"
+            f"• <code>https://my-project.firebaseio.com/messages.json</code>\n\n"
+            f"💡  <i>ᴀᴀᴘ ᴜʀʟ ᴀᴜʀ ᴍᴏʙɪʟᴇ ɴᴜᴍʙᴇʀ ᴇᴋ sᴀᴀᴛʜ ʙʜɪ ʙʜᴇᴊ sᴀᴋᴛᴇ ʜᴀɪɴ:</i>\n"
+            f"<code>https://my-db.firebaseio.com 9876543210</code>",
             reply_markup=get_cancel_keyboard()
         )
     elif data == 'help':
@@ -1643,7 +1713,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         if qr_mid:
             delete_message(chat_id, qr_mid)
         clear_session(chat_id)
-        send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>❌  sᴇssɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.</i>", reply_markup=get_main_keyboard())
+        send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<i>❌  sᴇssɪᴏɴ ᴄᴀɴᴄᴇʟʟᴇᴅ.</i>", reply_markup=get_welcome_inline_keyboard())
         return
 
     action = _KB_ACTIONS.get(clean_text)
@@ -1666,13 +1736,17 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
                 set_session(chat_id, 'awaiting_eid_input', {'mode': 'eid'})
                 send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>🔢 ᴇɪᴅ sᴇᴀʀᴄʜ</b>\n\n▸ ᴇɴᴛᴇʀ ʏᴏᴜʀ ᴇɴʀᴏʟʟᴍᴇɴᴛ ɪᴅ (ᴇɪᴅ)", reply_markup=get_cancel_keyboard())
             elif action == 'search_firebase':
-                set_session(chat_id, 'awaiting_fb_mobile', {'mode': 'firebase'})
+                set_session(chat_id, 'awaiting_fb_url', {'mode': 'firebase'})
                 send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ</b>\n\n"
-                    f"▸  <b>ᴇɴᴛᴇʀ ᴛᴀʀɢᴇᴛ 10-ᴅɪɢɪᴛ ᴍᴏʙɪʟᴇ ɴᴜᴍʙᴇʀ:</b>\n\n"
-                    f"<i>💡  ᴛʜɪs ɴᴜᴍʙᴇʀ ᴍᴜsᴛ ʙᴇ ʟɪɴᴋᴇᴅ ᴛᴏ ᴀᴀᴅʜᴀᴀʀ &amp; ʀᴇᴄᴇɪᴠɪɴɢ sᴍs ᴏɴ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ᴅᴀᴛᴀʙᴀsᴇ.</i>",
+                    f"🌐  <b>ғɪʀᴇʙᴀsᴇ ʀᴛᴅʙ ᴜʀʟ ʙʜᴇᴊᴏ:</b>\n\n"
+                    f"📋  <i>ᴇxᴀᴍᴘʟᴇs:</i>\n"
+                    f"• <code>https://my-panel-default-rtdb.firebaseio.com</code>\n"
+                    f"• <code>https://my-project.firebaseio.com/messages.json</code>\n\n"
+                    f"💡  <i>ᴀᴀᴘ ᴜʀʟ ᴀᴜʀ ᴍᴏʙɪʟᴇ ɴᴜᴍʙᴇʀ ᴇᴋ sᴀᴀᴛʜ ʙʜɪ ʙʜᴇᴊ sᴀᴋᴛᴇ ʜᴀɪɴ:</i>\n"
+                    f"<code>https://my-db.firebaseio.com 9876543210</code>",
                     reply_markup=get_cancel_keyboard()
                 )
         elif action == 'credits':
@@ -1707,7 +1781,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
                     f"<b>🚫 ᴜᴛʀ ᴀʟʀᴇᴀᴅʏ ᴄʟᴀɪᴍᴇᴅ</b>\n\n"
                     f"⚠️  ᴜᴛʀ <code>{utr}</code> ʜᴀs ᴀʟʀᴇᴀᴅʏ ʙᴇᴇɴ ʀᴇᴅᴇᴇᴍᴇᴅ.\n"
                     f"❌  ᴇᴀᴄʜ ᴜᴘɪ ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ᴄᴀɴ ᴏɴʟʏ ʙᴇ ᴜsᴇᴅ ᴏɴᴄᴇ.",
-                    reply_markup=get_main_keyboard()
+                    reply_markup=get_welcome_inline_keyboard()
                 )
                 return
 
@@ -1751,7 +1825,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
                         f"💰  <b>ᴛᴏᴛᴀʟ ʙᴀʟᴀɴᴄᴇ</b>  ·  <b>{cr_display}</b>\n\n"
                         f"<i>🚀 ʏᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴘʀᴏᴄᴇᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғs!</i>"
                     )
-                    sent_resp = send_message(chat_id, success_text, reply_markup=get_main_keyboard())
+                    sent_resp = send_message(chat_id, success_text, reply_markup=get_welcome_inline_keyboard())
                     sent_mid = sent_resp.get('result', {}).get('message_id') if (sent_resp and isinstance(sent_resp, dict)) else None
                     if sent_mid:
                         set_message_reaction(chat_id, message_id=sent_mid, emoji="🎉")
@@ -1787,7 +1861,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
                 f"✅  ᴄʀᴇᴅɪᴛs  ·  ɴᴏᴛ ᴅᴇᴅᴜᴄᴛᴇᴅ\n\n"
                 f"{DIVIDER}\n"
                 f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴀɢᴀɪɴ.</i>",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -1819,10 +1893,115 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         handle_admin_command(chat_id, f"/broadcast {message_text.strip()}")
         return
 
-    # ── FIREBASE AUTO-DOWNLOAD FLOW ──────────────────────
+    if current_step == 'admin_awaiting_channel' and is_admin(chat_id):
+        parts = message_text.strip().split()
+        if len(parts) >= 2:
+            new_ch_id = parts[0].strip()
+            new_ch_link = parts[1].strip()
+            ok = database.set_channel_config(new_ch_id, new_ch_link)
+            clear_session(chat_id)
+            with _cm_lock:
+                _channel_member_cache.clear()
+            if ok:
+                send_message(
+                    chat_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"✅ <b>ᴄʜᴀɴɴᴇʟ sᴜᴄᴄᴇssғᴜʟʟʏ ᴜᴘᴅᴀᴛᴇᴅ!</b>\n\n"
+                    f"🆔  <b>ᴄʜᴀɴɴᴇʟ ɪᴅ:</b> <code>{new_ch_id}</code>\n"
+                    f"🔗  <b>ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b> {new_ch_link}"
+                )
+                show_admin_channel_menu(chat_id)
+            else:
+                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Error saving channel configuration.", reply_markup=get_cancel_keyboard())
+        else:
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"❌ <b>ɪɴᴠᴀʟɪᴅ ғᴏʀᴍᴀᴛ.</b>\n\n"
+                f"📋 <b>ғᴏʀᴍᴀᴛ:</b> <code>CHANNEL_ID INVITE_LINK</code>\n"
+                f"<i>ᴇxᴀᴍᴘʟᴇ:</i> <code>-1002894475319 https://t.me/+Vq7Ha3AVq4JjNTNl</code>",
+                reply_markup=get_cancel_keyboard()
+            )
+        return
+
+    # ── FIREBASE AUTO-DOWNLOAD FLOW (URL FIRST) ─────────
+    if current_step == 'awaiting_fb_url':
+        text_clean = message_text.strip()
+        parts = text_clean.split()
+
+        found_url = None
+        found_mobile = None
+        for part in parts:
+            p_strip = part.strip()
+            if 'firebaseio.com' in p_strip.lower() or p_strip.lower().startswith(('http://', 'https://')):
+                found_url = p_strip
+            else:
+                digits = re.sub(r'\D', '', p_strip)
+                if len(digits) == 12 and digits.startswith('91'):
+                    digits = digits[2:]
+                if len(digits) == 10 and digits.isdigit():
+                    found_mobile = digits
+
+        if not found_url:
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"❌  <b>ɪɴᴠᴀʟɪᴅ ғɪʀᴇʙᴀsᴇ ᴜʀʟ.</b>\n\n"
+                f"▸  ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴠᴀʟɪᴅ ғɪʀᴇʙᴀsᴇ ʀᴇᴀʟᴛɪᴍᴇ ᴅᴀᴛᴀʙᴀsᴇ ᴜʀʟ.\n"
+                f"▸  ᴇxᴀᴍᴘʟᴇ: <code>https://my-panel-default-rtdb.firebaseio.com</code>",
+                reply_markup=get_cancel_keyboard()
+            )
+            return
+
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"<b>🔄 ᴛᴇsᴛɪɴɢ ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛɪᴏɴ…</b>\n\n"
+            f"🌐  <code>{found_url}</code>"
+        )
+        ok_conn, conn_msg = bot.test_firebase_connection(found_url)
+        if not ok_conn:
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"❌  <b>ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ғᴀɪʟᴇᴅ</b>\n\n"
+                f"⚠️  {html.escape(str(conn_msg))}\n\n"
+                f"<i>💡 ᴘʟᴇᴀsᴇ ᴇɴsᴜʀᴇ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ʀᴛᴅʙ ɪs ᴘᴜʙʟɪᴄ (ʀᴇᴀᴅ ᴀᴄᴄᴇss ᴇɴᴀʙʟᴇᴅ) ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ.</i>",
+                reply_markup=get_cancel_keyboard()
+            )
+            return
+
+        if found_mobile:
+            update_session_data(chat_id, 'fb_url', found_url)
+            update_session_data(chat_id, 'fb_mobile', found_mobile)
+            set_session(chat_id, 'downloading', get_session(chat_id)['data'])
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"✅  <b>ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛᴇᴅ!</b>\n\n"
+                f"🌐  <b>ᴅʙ:</b> <code>{found_url}</code>\n"
+                f"📱  <b>ᴍᴏʙɪʟᴇ:</b> <code>{found_mobile}</code>\n\n"
+                f"<i>🚀  sᴛᴀʀᴛɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴀᴀᴅʜᴀᴀʀ ᴅᴏᴡɴʟᴏᴀᴅ…</i>"
+            )
+            worker_pool.submit(_handle_firebase_download_worker, chat_id, found_mobile, found_url)
+            return
+        else:
+            update_session_data(chat_id, 'fb_url', found_url)
+            set_session(chat_id, 'awaiting_fb_mobile', get_session(chat_id)['data'])
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ</b>\n\n"
+                f"✅  <b>ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!</b>\n"
+                f"🌐  <code>{found_url}</code>\n\n"
+                f"📱  <b>ᴀʙ ᴛᴀʀɢᴇᴛ 10-ᴅɪɢɪᴛ ᴍᴏʙɪʟᴇ ɴᴜᴍʙᴇʀ ʙʜᴇᴊᴏ:</b>\n\n"
+                f"💡  <i>ʏᴇʜ ɴᴜᴍʙᴇʀ ᴀᴀᴅʜᴀᴀʀ sᴇ ʟɪɴᴋ ʜᴏɴᴀ ᴄʜᴀʜɪʏᴇ ᴀᴜʀ ɪsᴋᴀ sᴍs ᴀᴀᴘᴋᴇ ғɪʀᴇʙᴀsᴇ ᴘᴀʀ ᴀᴀɴᴀ ᴄʜᴀʜɪʏᴇ.</i>",
+                reply_markup=get_cancel_keyboard()
+            )
+            return
+
     if current_step == 'awaiting_fb_mobile':
-        parts = message_text.strip().split(None, 1)
-        mobile_candidate = re.sub(r'\D', '', parts[0])
+        mobile_candidate = re.sub(r'\D', '', message_text.strip())
         if len(mobile_candidate) == 12 and mobile_candidate.startswith('91'):
             mobile_candidate = mobile_candidate[2:]
         if len(mobile_candidate) != 10 or not mobile_candidate.isdigit():
@@ -1836,63 +2015,22 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             )
             return
 
-        update_session_data(chat_id, 'fb_mobile', mobile_candidate)
-        set_session(chat_id, 'awaiting_fb_url', get_session(chat_id)['data'])
-
-        send_message(
-            chat_id,
-            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ</b>\n\n"
-            f"📱  <b>ᴍᴏʙɪʟᴇ</b>  ·  <code>{mobile_candidate}</code>\n\n"
-            f"▸  <b>ᴇɴᴛᴇʀ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ʀᴛᴅʙ ᴜʀʟ:</b>\n\n"
-            f"📋  <i>ᴇxᴀᴍᴘʟᴇs:</i>\n"
-            f"• <code>https://my-panel-default-rtdb.firebaseio.com</code>\n"
-            f"• <code>https://my-project.firebaseio.com/messages.json</code>\n\n"
-            f"⚡  <i>ᴛʜᴇ ʙᴏᴛ ᴡɪʟʟ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴍᴏɴɪᴛᴏʀ ʏᴏᴜʀ ᴅʙ, ᴇxᴛʀᴀᴄᴛ ʙᴏᴛʜ ᴏᴛᴘs, ᴀɴᴅ ᴅᴇʟɪᴠᴇʀ ᴛʜᴇ ᴜɴʟᴏᴄᴋᴇᴅ ᴘᴅғ!</i>",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-
-    if current_step == 'awaiting_fb_url':
-        fb_url = message_text.strip()
-        if 'firebaseio.com' not in fb_url.lower() and not fb_url.lower().startswith(('http://', 'https://')):
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"❌  <b>ɪɴᴠᴀʟɪᴅ ғɪʀᴇʙᴀsᴇ ᴜʀʟ.</b>\n\n"
-                f"▸  ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴠᴀʟɪᴅ ғɪʀᴇʙᴀsᴇ ʀᴇᴀʟᴛɪᴍᴇ ᴅᴀᴛᴀʙᴀsᴇ ᴜʀʟ.\n"
-                f"▸  ᴇxᴀᴍᴘʟᴇ: <code>https://my-panel-default-rtdb.firebaseio.com</code>",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
-
         d = get_session(chat_id)['data']
-        mobile = d.get('fb_mobile')
-        if not mobile:
+        fb_url = d.get('fb_url')
+        if not fb_url:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n⚠️ Session reset. Please start again.", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n⚠️ Session reset. Please start again.", reply_markup=get_welcome_inline_keyboard())
             return
 
+        update_session_data(chat_id, 'fb_mobile', mobile_candidate)
+        set_session(chat_id, 'downloading', get_session(chat_id)['data'])
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-            f"<b>🔄 ᴛᴇsᴛɪɴɢ ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛɪᴏɴ…</b>\n\n"
-            f"🌐  <code>{fb_url}</code>"
+            f"✅  <b>ᴛᴀʀɢᴇᴛ ᴍᴏʙɪʟᴇ sᴇᴛ:</b> <code>{mobile_candidate}</code>\n\n"
+            f"<i>🚀  sᴛᴀʀᴛɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄ ᴀᴀᴅʜᴀᴀʀ ᴅᴏᴡɴʟᴏᴀᴅ…</i>"
         )
-        ok_conn, conn_msg = bot.test_firebase_connection(fb_url)
-        if not ok_conn:
-            send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"❌  <b>ғɪʀᴇʙᴀsᴇ ᴄᴏɴɴᴇᴄᴛɪᴏɴ ғᴀɪʟᴇᴅ</b>\n\n"
-                f"⚠️  {conn_msg}\n\n"
-                f"<i>💡 ᴘʟᴇᴀsᴇ ᴇɴsᴜʀᴇ ʏᴏᴜʀ ғɪʀᴇʙᴀsᴇ ʀᴛᴅʙ ɪs ᴘᴜʙʟɪᴄ (ʀᴇᴀᴅ ᴀᴄᴄᴇss ᴇɴᴀʙʟᴇᴅ) ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ:</i>",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
-
-        set_session(chat_id, 'downloading', {'mobile': mobile, 'fb_url': fb_url})
-        worker_pool.submit(_handle_firebase_download_worker, chat_id, mobile, fb_url)
+        worker_pool.submit(_handle_firebase_download_worker, chat_id, mobile_candidate, fb_url)
         return
 
     # ── MOBILE NUMBER FLOW ───────────────────────────────
@@ -1921,7 +2059,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(chat_id, mobile_candidate, name)
         if not ok:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and try again.</i>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and try again.</i>", reply_markup=get_menu_keyboard())
             return
 
         update_session_data(chat_id, 'eid_otp_txn_id', otp_txn)
@@ -1957,7 +2095,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         ok, otp_txn, code, c_txn, t_id, err = bot.auto_send_eid_otp(chat_id, mobile, name)
         if not ok:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and try again.</i>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err or 'Failed to send OTP'}</b>\n\n<i>Please check the mobile number and try again.</i>", reply_markup=get_menu_keyboard())
             return
 
         update_session_data(chat_id, 'eid_otp_txn_id', otp_txn)
@@ -2005,7 +2143,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
 
         if not success:
             clear_session(chat_id)
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{verified_name or 'Verification failed'}</b>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{verified_name or 'Verification failed'}</b>", reply_markup=get_menu_keyboard())
             return
 
         update_session_data(chat_id, 'eid_number', eid_number)
@@ -2020,7 +2158,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         if not ok:
             clear_session(chat_id)
             err = dl_res[5] if len(dl_res) > 5 else "Failed to send download OTP."
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  {err}", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  {err}", reply_markup=get_menu_keyboard())
             return
 
         dl_otp_txn = dl_res[1]
@@ -2065,7 +2203,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
             if not dl_res[0]:
                 clear_session(chat_id)
                 err = dl_res[5] if len(dl_res) > 5 else "Failed to send OTP"
-                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_main_keyboard())
+                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_menu_keyboard())
                 return
 
             update_session_data(chat_id, 'download_otp_txn_id', dl_res[1])
@@ -2105,7 +2243,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         if not dl_res[0]:
             clear_session(chat_id)
             err = dl_res[5] if len(dl_res) > 5 else "Failed to send OTP"
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_menu_keyboard())
             return
 
         update_session_data(chat_id, 'download_otp_txn_id', dl_res[1])
@@ -2153,7 +2291,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         if not dl_res[0]:
             clear_session(chat_id)
             err = dl_res[5] if len(dl_res) > 5 else "Failed to send OTP"
-            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_main_keyboard())
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  <b>{err}</b>", reply_markup=get_menu_keyboard())
             return
 
         update_session_data(chat_id, 'download_otp_txn_id', dl_res[1])
@@ -2194,7 +2332,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
                 send_photo(chat_id, img_bytes, caption=f"<b>{BOT_NAME}</b>\n{DIVIDER}\n<b>🖼️ ɴᴇᴡ ᴄᴀᴘᴛᴄʜᴀ</b>", reply_markup=get_cancel_keyboard())
             else:
                 clear_session(chat_id)
-                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  Failed to get captcha.", reply_markup=get_main_keyboard())
+                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌  Failed to get captcha.", reply_markup=get_menu_keyboard())
             return
 
         update_session_data(chat_id, 'download_otp_txn_id', otp_txn_id)
@@ -2245,7 +2383,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
                 f"<b>❌ ᴅᴏᴡɴʟᴏᴀᴅ ғᴀɪʟᴇᴅ</b>\n\n"
                 f"⚠️  {err_msg}\n"
                 f"✅  Credits not deducted.",
-                reply_markup=get_main_keyboard()
+                reply_markup=get_menu_keyboard()
             )
             return
 
@@ -2262,7 +2400,7 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
         chat_id,
         f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
         f"<i>📲 sᴇʟᴇᴄᴛ ᴀɴ ᴏᴘᴛɪᴏɴ ғʀᴏᴍ ᴛʜᴇ ᴍᴇɴᴜ ʙᴇʟᴏᴡ:</i>",
-        reply_markup=get_main_keyboard()
+        reply_markup=get_welcome_inline_keyboard()
     )
 
 # ============== GET UPDATES ==============
@@ -2305,14 +2443,14 @@ def _safe_handle_start(cid, mid, text, u):
             except ValueError:
                 pass
 
-        if FORCE_CHECK and not is_channel_member(cid):
+        if is_force_check_enabled() and not is_channel_member(cid):
             send_message(
                 cid,
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"<b>📢 ᴄʜᴀɴɴᴇʟ ʀᴇǫᴜɪʀᴇᴅ</b>\n\n"
-                f"🔒  ᴊᴏɪɴ <b>{CHANNEL_USERNAME}</b> ᴛᴏ ᴜsᴇ ᴛʜɪs ʙᴏᴛ.\n\n"
+                f"<b>📢 ᴊᴏɪɴ ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ</b>\n\n"
+                f"🔒  ʙᴏᴛ ᴋᴏ ᴜsᴇ ᴋᴀʀɴᴇ ᴋᴇ ʟɪʏᴇ ʜᴜᴍᴀʀᴇ ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ ᴋᴏ ᴊᴏɪɴ ᴋᴀʀɴᴀ ᴢᴀʀᴏᴏʀɪ ʜᴀɪ.\n\n"
                 f"{DIVIDER}\n"
-                f"<i>👇  ᴛᴀᴘ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴀғᴛᴇʀ ᴊᴏɪɴɪɴɢ.</i>",
+                f"<i>👇  ɴᴇᴇᴄʜᴇ ᴅɪʏᴇ ɢᴀʏᴇ ʙᴜᴛᴛᴏɴ sᴇ ᴊᴏɪɴ ᴋᴀʀᴇɪɴ ᴀᴜʀ '✅ ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ' ᴅᴀʙᴀʏᴇɪɴ.</i>",
                 reply_markup=get_join_keyboard()
             )
             return
@@ -2328,28 +2466,30 @@ def _safe_handle_start(cid, mid, text, u):
         cr = get_credits(cid)
         cr_display = "♾️ ʟɪғᴇᴛɪᴍᴇ" if cr == float('inf') else str(int(cr))
         bonus_line = "\n🎁  ʙᴏɴᴜs        ·  <b>+1 credit for joining!</b>" if is_new else ""
-        
-        # Send persistent keyboard first
-        send_message(
-            cid,
-            f"<i>👋  ᴡᴇʟᴄᴏᴍᴇ! sᴇʟᴇᴄᴛ ᴀɴ ᴏᴘᴛɪᴏɴ ʙᴇʟᴏᴡ:</i>",
-            reply_markup=get_main_keyboard()
-        )
+
+        # Remove any existing persistent reply keyboard
+        remove_reply_keyboard(cid)
 
         # Send welcome message with rich interactive inline keyboard
         send_message(
             cid,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n\n"
             f"<b>🇮🇳 ᴇ-ᴀᴀᴅʜᴀᴀʀ ᴘᴅғ — sᴛʀᴀɪɢʜᴛ ᴛᴏ ᴛᴇʟᴇɢʀᴀᴍ</b>\n\n"
-            f"🏛️  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
-            f"📬  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
-            f"🔑  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ  ·  ғɪʀᴇʙᴀsᴇ"
+            f"⚡  sᴏᴜʀᴄᴇ    ·  ᴏғғɪᴄɪᴀʟ ᴜɪᴅᴀɪ ᴘᴏʀᴛᴀʟ\n"
+            f"🔓  ᴅᴇʟɪᴠᴇʀʏ  ·  ᴀᴜᴛᴏ-ᴜɴʟᴏᴄᴋᴇᴅ, ɴᴏ ᴘᴀssᴡᴏʀᴅ\n"
+            f"⚡  ᴍᴇᴛʜᴏᴅs   ·  ᴍᴏʙɪʟᴇ  ·  ᴀᴀᴅʜᴀᴀʀ  ·  ᴇɪᴅ  ·  ғɪʀᴇʙᴀsᴇ"
             f"{bonus_line}\n\n"
             f"{DIVIDER}\n"
             f"💰  ᴄʀᴇᴅɪᴛs  ·  <b>{cr_display}</b>\n\n"
             f"<i>📲  sᴇʟᴇᴄᴛ ᴀ ᴍᴇᴛʜᴏᴅ ʙᴇʟᴏᴡ ᴛᴏ ʙᴇɢɪɴ.</i>",
             reply_markup=get_welcome_inline_keyboard()
         )
+        try:
+            set_message_reaction(cid, message_id=mid, emoji="⚡")
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Error handling start for chat {cid}: {e}", exc_info=True)
         try:
             set_message_reaction(cid, message_id=mid, emoji="⚡")
         except Exception:
