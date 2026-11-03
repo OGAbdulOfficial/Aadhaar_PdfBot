@@ -501,8 +501,8 @@ def get_menu_keyboard():
     return {
         'inline_keyboard': [
             [
-                {'text': '🔄 ᴍᴀɪɴ ᴍᴇɴᴜ', 'callback_data': 'start', 'style': 'primary'},
-                {'text': '🛒 ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'style': 'success'}
+                {'text': 'ᴍᴀɪɴ ᴍᴇɴᴜ', 'callback_data': 'start', 'icon_custom_emoji_id': '5030872266716480568', 'style': 'primary'},
+                {'text': 'ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'icon_custom_emoji_id': '5258024802010026053', 'style': 'success'}
             ]
         ]
     }
@@ -511,35 +511,35 @@ def get_welcome_inline_keyboard():
     return {
         'inline_keyboard': [
             [
-                {'text': '📱 ᴍᴏʙɪʟᴇ', 'callback_data': 'search_mobile', 'style': 'primary'},
-                {'text': '🪪 ᴀᴀᴅʜᴀᴀʀ', 'callback_data': 'search_aadhaar', 'style': 'primary'},
-                {'text': '🔢 ᴇɪᴅ', 'callback_data': 'search_eid', 'style': 'primary'}
+                {'text': 'ᴍᴏʙɪʟᴇ', 'callback_data': 'search_mobile', 'icon_custom_emoji_id': '6201882038975341348', 'style': 'primary'},
+                {'text': 'ᴀᴀᴅʜᴀᴀʀ', 'callback_data': 'search_aadhaar', 'icon_custom_emoji_id': '5890864241388293875', 'style': 'primary'},
+                {'text': 'ᴇɪᴅ', 'callback_data': 'search_eid', 'icon_custom_emoji_id': '5226513232549664618', 'style': 'primary'}
             ],
             [
-                {'text': '🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ', 'callback_data': 'search_firebase', 'style': 'primary'}
+                {'text': 'ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ', 'callback_data': 'search_firebase', 'icon_custom_emoji_id': '5289722755871162900', 'style': 'primary'}
             ],
             [
-                {'text': '💎 ᴄʀᴇᴅɪᴛs', 'callback_data': 'credits', 'style': 'success'},
-                {'text': '🛒 ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'style': 'success'},
-                {'text': '🔗 ʀᴇғᴇʀʀᴀʟ', 'callback_data': 'referral', 'style': 'primary'}
+                {'text': 'ᴄʀᴇᴅɪᴛs', 'callback_data': 'credits', 'icon_custom_emoji_id': '5427168083074628963', 'style': 'success'},
+                {'text': 'ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'icon_custom_emoji_id': '5258024802010026053', 'style': 'success'},
+                {'text': 'ʀᴇғᴇʀʀᴀʟ', 'callback_data': 'referral', 'icon_custom_emoji_id': '6113813004426416777', 'style': 'primary'}
             ],
             [
-                {'text': '❓ ʜᴇʟᴘ & ɢᴜɪᴅᴇ', 'callback_data': 'help', 'style': 'primary'}
+                {'text': 'ʜᴇʟᴘ & ɢᴜɪᴅᴇ', 'callback_data': 'help', 'icon_custom_emoji_id': '5436113877181941026', 'style': 'primary'}
             ]
         ]
     }
 
 def get_cancel_keyboard():
-    return {'inline_keyboard': [[{'text': 'ᴄᴀɴᴄᴇʟ', 'callback_data': 'cancel', 'style': 'danger'}]]}
+    return {'inline_keyboard': [[{'text': 'ᴄᴀɴᴄᴇʟ', 'callback_data': 'cancel', 'icon_custom_emoji_id': '6305324410744084248', 'style': 'danger'}]]}
 
 def get_buy_keyboard():
     return {
         'inline_keyboard': [
-            [{'text': '25 ᴄʀᴇᴅɪᴛs — ₹50', 'callback_data': 'buy_50', 'style': 'primary'},
-             {'text': '60 ᴄʀᴇᴅɪᴛs — ₹100', 'callback_data': 'buy_100', 'style': 'success'}],
-            [{'text': '160 ᴄʀᴇᴅɪᴛs — ₹250', 'callback_data': 'buy_250', 'style': 'primary'},
-             {'text': 'ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ — ₹500', 'callback_data': 'buy_500', 'style': 'success'}],
-            [{'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}]
+            [{'text': '25 ᴄʀᴇᴅɪᴛs — ₹50', 'callback_data': 'buy_50', 'icon_custom_emoji_id': '5456140674028019486', 'style': 'primary'},
+             {'text': '60 ᴄʀᴇᴅɪᴛs — ₹100', 'callback_data': 'buy_100', 'icon_custom_emoji_id': '5289722755871162900', 'style': 'success'}],
+            [{'text': '160 ᴄʀᴇᴅɪᴛs — ₹250', 'callback_data': 'buy_250', 'icon_custom_emoji_id': '5427168083074628963', 'style': 'primary'},
+             {'text': 'ʟɪғᴇᴛɪᴍᴇ ᴠɪᴘ — ₹500', 'callback_data': 'buy_500', 'icon_custom_emoji_id': '6237927637906364256', 'style': 'success'}],
+            [{'text': 'ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'icon_custom_emoji_id': '6276030448862763508', 'style': 'danger'}]
         ]
     }
 
@@ -547,11 +547,11 @@ def get_credits_keyboard():
     return {
         'inline_keyboard': [
             [
-                {'text': '🛒 ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'style': 'success'},
-                {'text': '🔗 ʀᴇғᴇʀʀᴀʟ', 'callback_data': 'referral', 'style': 'primary'}
+                {'text': 'ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'icon_custom_emoji_id': '5258024802010026053', 'style': 'success'},
+                {'text': 'ʀᴇғᴇʀʀᴀʟ', 'callback_data': 'referral', 'icon_custom_emoji_id': '6113813004426416777', 'style': 'primary'}
             ],
             [
-                {'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}
+                {'text': 'ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'icon_custom_emoji_id': '6276030448862763508', 'style': 'danger'}
             ]
         ]
     }
@@ -561,11 +561,11 @@ def get_referral_keyboard(link):
     return {
         'inline_keyboard': [
             [
-                {'text': '📤 sʜᴀʀᴇ ɪɴᴠɪᴛᴇ ʟɪɴᴋ', 'url': share_url, 'style': 'primary'}
+                {'text': 'sʜᴀʀᴇ ɪɴᴠɪᴛᴇ ʟɪɴᴋ', 'url': share_url, 'icon_custom_emoji_id': '6204139486671019705', 'style': 'primary'}
             ],
             [
-                {'text': '💎 ᴍʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'credits', 'style': 'success'},
-                {'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}
+                {'text': 'ᴍʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'credits', 'icon_custom_emoji_id': '5427168083074628963', 'style': 'success'},
+                {'text': 'ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'icon_custom_emoji_id': '6276030448862763508', 'style': 'danger'}
             ]
         ]
     }
@@ -574,15 +574,15 @@ def get_help_keyboard():
     return {
         'inline_keyboard': [
             [
-                {'text': '🥷 ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ', 'callback_data': 'search_firebase', 'style': 'primary'},
-                {'text': '🛒 ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'style': 'success'}
+                {'text': 'ᴅᴏᴡɴʟᴏᴀᴅ ᴠɪᴀ ғɪʀᴇʙᴀsᴇ', 'callback_data': 'search_firebase', 'icon_custom_emoji_id': '5289722755871162900', 'style': 'primary'},
+                {'text': 'ʙᴜʏ ᴄʀᴇᴅɪᴛs', 'callback_data': 'buy', 'icon_custom_emoji_id': '5258024802010026053', 'style': 'success'}
             ],
             [
-                {'text': '📞 ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ', 'url': f"https://t.me/{OWNER_USERNAME.lstrip('@')}"},
-                {'text': '📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': get_channel_link()}
+                {'text': 'ᴄᴏɴᴛᴀᴄᴛ sᴜᴘᴘᴏʀᴛ', 'url': f"https://t.me/{OWNER_USERNAME.lstrip('@')}", 'icon_custom_emoji_id': '6201882038975341348'},
+                {'text': 'ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': get_channel_link(), 'icon_custom_emoji_id': '6305206294848475991'}
             ],
             [
-                {'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'style': 'danger'}
+                {'text': 'ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', 'callback_data': 'cancel', 'icon_custom_emoji_id': '6276030448862763508', 'style': 'danger'}
             ]
         ]
     }
@@ -594,24 +594,25 @@ def get_channel_invite_url():
 def get_join_keyboard():
     return {
         'inline_keyboard': [
-            [{'text': '📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': get_channel_link(), 'style': 'primary'}],
-            [{'text': '✅ ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ',    'callback_data': 'check_join', 'style': 'success'}],
+            [{'text': 'ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ', 'url': get_channel_link(), 'icon_custom_emoji_id': '6305206294848475991', 'style': 'primary'}],
+            [{'text': 'ɪ ʜᴀᴠᴇ ᴊᴏɪɴᴇᴅ',    'callback_data': 'check_join', 'icon_custom_emoji_id': '6275829594717165532', 'style': 'success'}],
         ]
     }
 
 def get_admin_keyboard():
-    fc_status = "✅ ON" if is_force_check_enabled() else "❌ OFF"
+    fc_status = "ON" if is_force_check_enabled() else "OFF"
+    fc_emoji = '6275829594717165532' if is_force_check_enabled() else '6305324410744084248'
     return {
         'inline_keyboard': [
-            [{'text': '📊 sᴛᴀᴛɪsᴛɪᴄs',       'callback_data': 'admin_stats', 'style': 'primary'},
-             {'text': '👥 ᴜsᴇʀ ʟɪsᴛ',        'callback_data': 'admin_users', 'style': 'primary'}],
-            [{'text': '🎁 ɢʀᴀɴᴛ ᴄʀᴇᴅɪᴛs',    'callback_data': 'admin_send_prompt', 'style': 'success'},
-             {'text': '🔍 ᴜsᴇʀ ʟᴏᴏᴋᴜᴘ',      'callback_data': 'admin_userinfo_prompt', 'style': 'primary'}],
-            [{'text': '🚫 ʙᴀɴ ᴜsᴇʀ',         'callback_data': 'admin_ban_prompt', 'style': 'danger'},
-             {'text': '✅ ᴜɴʙᴀɴ ᴜsᴇʀ',       'callback_data': 'admin_unban_prompt', 'style': 'success'}],
-            [{'text': '📢 ᴄʜᴀɴɴᴇʟ sᴇᴛᴛɪɴɢs', 'callback_data': 'admin_channel_menu', 'style': 'primary'},
-             {'text': '📣 ʙʀᴏᴀᴅᴄᴀsᴛ',        'callback_data': 'admin_broadcast_prompt', 'style': 'primary'}],
-            [{'text': f'🔘 ғᴏʀᴄᴇ ᴊᴏɪɴ: {fc_status}', 'callback_data': 'admin_toggle_force_check', 'style': 'primary'}],
+            [{'text': 'sᴛᴀᴛɪsᴛɪᴄs',       'callback_data': 'admin_stats', 'icon_custom_emoji_id': '6204093414556834971', 'style': 'primary'},
+             {'text': 'ᴜsᴇʀ ʟɪsᴛ',        'callback_data': 'admin_users', 'icon_custom_emoji_id': '6305229569276254220', 'style': 'primary'}],
+            [{'text': 'ɢʀᴀɴᴛ ᴄʀᴇᴅɪᴛs',    'callback_data': 'admin_send_prompt', 'icon_custom_emoji_id': '5084613633418199991', 'style': 'success'},
+             {'text': 'ᴜsᴇʀ ʟᴏᴏᴋᴜᴘ',      'callback_data': 'admin_userinfo_prompt', 'icon_custom_emoji_id': '5362061893605279054', 'style': 'primary'}],
+            [{'text': 'ʙᴀɴ ᴜsᴇʀ',         'callback_data': 'admin_ban_prompt', 'icon_custom_emoji_id': '5240241223632954241', 'style': 'danger'},
+             {'text': 'ᴜɴʙᴀɴ ᴜsᴇʀ',       'callback_data': 'admin_unban_prompt', 'icon_custom_emoji_id': '6275829594717165532', 'style': 'success'}],
+            [{'text': 'ᴄʜᴀɴɴᴇʟ sᴇᴛᴛɪɴɢs', 'callback_data': 'admin_channel_menu', 'icon_custom_emoji_id': '6305206294848475991', 'style': 'primary'},
+             {'text': 'ʙʀᴏᴀᴅᴄᴀsᴛ',        'callback_data': 'admin_broadcast_prompt', 'icon_custom_emoji_id': '6305206294848475991', 'style': 'primary'}],
+            [{'text': f'ғᴏʀᴄᴇ ᴊᴏɪɴ: {fc_status}', 'callback_data': 'admin_toggle_force_check', 'icon_custom_emoji_id': fc_emoji, 'style': 'primary'}],
         ]
     }
 
@@ -619,20 +620,21 @@ def show_admin_channel_menu(chat_id):
     cfg = database.get_channel_config()
     ch_id = cfg.get("channel_id", "-1002894475319")
     ch_link = cfg.get("channel_link", "https://t.me/+Vq7Ha3AVq4JjNTNl")
-    fc_txt = "✅ ON" if cfg.get("force_check", True) else "❌ OFF"
+    fc_txt = "ON" if cfg.get("force_check", True) else "OFF"
+    fc_emoji = '6275829594717165532' if cfg.get("force_check", True) else '6305324410744084248'
     send_message(
         chat_id,
         f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
         f"<b>📢 ᴏғғɪᴄɪᴀʟ ᴄʜᴀɴɴᴇʟ sᴇᴛᴛɪɴɢs</b>\n\n"
         f"🆔  <b>ᴄʜᴀɴɴᴇʟ ɪᴅ:</b> <code>{ch_id}</code>\n"
         f"🔗  <b>ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b> {ch_link}\n"
-        f"🛡️  <b>ғᴏʀᴄᴇ ᴊᴏɪɴ:</b> {fc_txt}\n\n"
+        f"🛡️  <b>ғᴏʀᴄᴇ ᴊᴏɪɴ:</b> <b>{fc_txt}</b>\n\n"
         f"<i>💡 ʙᴏᴛ ᴋᴏ ᴄʜᴀɴɴᴇʟ ᴍᴀɪɴ ᴀᴅᴍɪɴɪsᴛʀᴀᴛᴏʀ ʙᴀɴᴀɴᴀ ᴢᴀʀᴏᴏʀɪ ʜᴀɪ.</i>",
         reply_markup={
             'inline_keyboard': [
-                [{'text': '✏️ ᴄʜᴀɴɢᴇ ᴄʜᴀɴɴᴇʟ', 'callback_data': 'admin_change_channel_prompt', 'style': 'primary'}],
-                [{'text': f'🔘 ᴛᴏɢɢʟᴇ ғᴏʀᴄᴇ ᴊᴏɪɴ ({fc_txt})', 'callback_data': 'admin_toggle_force_check', 'style': 'primary'}],
-                [{'text': '🔙 ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ', 'callback_data': 'admin_back', 'style': 'danger'}]
+                [{'text': 'ᴄʜᴀɴɢᴇ ᴄʜᴀɴɴᴇʟ', 'callback_data': 'admin_change_channel_prompt', 'icon_custom_emoji_id': '5203910550542631009', 'style': 'primary'}],
+                [{'text': f'ᴛᴏɢɢʟᴇ ғᴏʀᴄᴇ ᴊᴏɪɴ ({fc_txt})', 'callback_data': 'admin_toggle_force_check', 'icon_custom_emoji_id': fc_emoji, 'style': 'primary'}],
+                [{'text': 'ʙᴀᴄᴋ ᴛᴏ ᴀᴅᴍɪɴ', 'callback_data': 'admin_back', 'icon_custom_emoji_id': '6276030448862763508', 'style': 'danger'}]
             ]
         }
     )
@@ -641,8 +643,8 @@ def show_admin_channel_menu(chat_id):
 def get_payment_keyboard(plan_key):
     return {
         'inline_keyboard': [
-            [{'text': 'ᴄʜᴇᴄᴋ sᴛᴀᴛᴜs', 'callback_data': f'checkpay_{plan_key}', 'style': 'primary', 'icon_custom_emoji_id': '4956371914323920049'}],
-            [{'text': 'ᴄᴀɴᴄᴇʟ', 'callback_data': 'cancel', 'style': 'danger'}]
+            [{'text': 'ᴄʜᴇᴄᴋ sᴛᴀᴛᴜs', 'callback_data': f'checkpay_{plan_key}', 'style': 'primary', 'icon_custom_emoji_id': '5030872266716480568'}],
+            [{'text': 'ᴄᴀɴᴄᴇʟ', 'callback_data': 'cancel', 'icon_custom_emoji_id': '6305324410744084248', 'style': 'danger'}]
         ]
     }
 
