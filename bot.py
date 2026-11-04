@@ -1329,8 +1329,7 @@ def show_firebase_devices_menu(chat_id, page=0):
         kb_rows.append(batch_row)
 
     if v_count > 1:
-        max_extract = min(v_count, 10)
-        kb_rows.append([{'text': f'ᴀʟʟ ᴀᴀᴅʜᴀᴀʀs ({max_extract} ᴘᴅғs)', 'callback_data': f'fb_batch_{max_extract}', 'icon_custom_emoji_id': '5289722755871162900', 'style': 'success'}])
+        kb_rows.append([{'text': f'ᴀʟʟ ᴀᴀᴅʜᴀᴀʀs ({v_count} ᴘᴅғs)', 'callback_data': f'fb_batch_{v_count}', 'icon_custom_emoji_id': '5289722755871162900', 'style': 'success'}])
 
     # Individual device buttons for this page
     for i, dev in enumerate(page_devices, start=start_idx):
