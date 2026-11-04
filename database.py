@@ -394,3 +394,127 @@ def record_successful_payment(user_id: str, utr: str, amount: float, credits_add
     except Exception as e:
         logger.error(f"Error recording payment in MongoDB: {e}")
         return False
+
+# ─── PDF DOWNLOAD AUDIT & STATS ────────────────────────────
+
+def record_pdf_download(user_id: str, name: str, is_admin_user: bool, is_owner_user: bool, method: str = "mobile", password: str = None) -> bool:
+    """Logs each PDF downloaded: whether owner, admin, or regular user."""
+    try:
+        uid = str(user_id)
+        now_str = datetime.now().isoformat()
+        role = "owner" if is_owner_user else ("admin" if is_admin_user else "user")
+        
+        mongo_db.pdf_downloads.insert_one({
+            "user_id": uid,
+            "name": name,
+            "role": role,
+            "method": method,
+            "password": password,
+            "downloaded_at": now_str
+        })
+        # Increment per-user download counter in users collection
+        mongo_db.users.update_one({"_id": uid}, {"$inc": {"downloads_count": 1}}, upsert=True)
+        _cache_invalidate(uid)
+        return True
+    except Exception as e:
+        logger.error(f"Error recording pdf download: {e}")
+        return False
+
+def get_download_stats() -> dict:
+    """Returns total downloads broken down by owner, admin, users, and overall."""
+    try:
+        total = mongo_db.pdf_downloads.count_documents({})
+        owner_dl = mongo_db.pdf_downloads.count_documents({"role": "owner"})
+        admin_dl = mongo_db.pdf_downloads.count_documents({"role": "admin"})
+        user_dl = mongo_db.pdf_downloads.count_documents({"role": "user"})
+        return {
+            "total": total,
+            "owner": owner_dl,
+            "admin": admin_dl,
+            "user": user_dl
+        }
+    except Exception as e:
+        logger.error(f"Error getting download stats: {e}")
+        return {"total": 0, "owner": 0, "admin": 0, "user": 0}
+
+# ─── REDEEM CODES SYSTEM ───────────────────────────────────
+
+def create_redeem_code(code: str, credits_amount: float, max_uses: int = 1, make_lifetime: bool = False, created_by: str = None) -> tuple:
+    """Creates a redeemable promo/gift code in MongoDB."""
+    try:
+        clean_code = str(code).strip().upper()
+        if not clean_code:
+            return False, "Code cannot be empty"
+        if mongo_db.redeem_codes.find_one({"_id": clean_code}):
+            return False, "Code already exists"
+            
+        mongo_db.redeem_codes.insert_one({
+            "_id": clean_code,
+            "code": clean_code,
+            "credits": float(credits_amount),
+            "max_uses": int(max_uses),
+            "used_count": 0,
+            "claimed_by": [],
+            "lifetime": bool(make_lifetime),
+            "created_by": str(created_by) if created_by else None,
+            "created_at": datetime.now().isoformat()
+        })
+        return True, clean_code
+    except Exception as e:
+        logger.error(f"Error creating redeem code: {e}")
+        return False, str(e)
+
+def claim_redeem_code(user_id: str, code: str) -> tuple:
+    """
+    Validates and claims a redeem code for user_id.
+    Returns (success: bool, message: str, credits_granted: float, is_lifetime: bool)
+    """
+    try:
+        uid = str(user_id)
+        clean_code = str(code).strip().upper()
+        ensure_user(uid)
+        
+        doc = mongo_db.redeem_codes.find_one({"_id": clean_code})
+        if not doc:
+            return False, "❌ Invalid redeem code. Please check and try again.", 0, False
+            
+        claimed_by = doc.get("claimed_by", [])
+        if uid in claimed_by:
+            return False, "⚠️ You have already redeemed this code!", 0, False
+            
+        used_count = doc.get("used_count", 0)
+        max_uses = doc.get("max_uses", 1)
+        if used_count >= max_uses:
+            return False, "❌ This code has expired or reached maximum claim limit.", 0, False
+            
+        is_lt = bool(doc.get("lifetime", False))
+        creds = float(doc.get("credits", 0))
+        
+        # Apply reward
+        if is_lt:
+            mongo_db.users.update_one({"_id": uid}, {"$set": {"lifetime": True}})
+        else:
+            mongo_db.users.update_one({"_id": uid}, {"$inc": {"credits": creds}})
+        _cache_invalidate(uid)
+        
+        # Update code claim status
+        mongo_db.redeem_codes.update_one(
+            {"_id": clean_code},
+            {
+                "$inc": {"used_count": 1},
+                "$push": {"claimed_by": uid}
+            }
+        )
+        return True, "Code claimed successfully", creds, is_lt
+    except Exception as e:
+        logger.error(f"Error claiming redeem code: {e}")
+        return False, f"Server error: {e}", 0, False
+
+def list_recent_redeem_codes(limit: int = 10) -> list:
+    """Lists recent redeem codes for admin overview."""
+    try:
+        return list(mongo_db.redeem_codes.find().sort("created_at", -1).limit(limit))
+    except Exception as e:
+        logger.error(f"Error listing redeem codes: {e}")
+        return []
+
