@@ -316,7 +316,7 @@ def _cleanup_sessions():
                 for cid, s in list(user_sessions.items()):
                     step = s.get('step', 'main')
                     if step != 'main':
-                        if step in ('awaiting_utr', 'downloading'):
+                        if step in ('awaiting_utr', 'downloading', 'awaiting_admin_create_code', 'admin_awaiting_create_code', 'awaiting_redeem_code'):
                             continue
                         idle = time.time() - s.get('last_activity', time.time())
                         if idle > SESSION_TIMEOUT:
@@ -2411,6 +2411,64 @@ def handle_message(chat_id, message_text, message_id=None, user_info=None):
     if current_step == 'admin_awaiting_unban' and is_admin(chat_id):
         clear_session(chat_id)
         handle_admin_command(chat_id, f"/unban {message_text.strip()}")
+        return
+
+    if current_step == 'admin_awaiting_create_code' or current_step == 'awaiting_admin_create_code':
+        if is_admin(chat_id):
+            parts = message_text.strip().split()
+            if len(parts) >= 2:
+                try:
+                    code = parts[0].strip().upper()
+                    creds_val = int(parts[1])
+                    max_u = int(parts[2]) if len(parts) >= 3 else 1
+                    is_lt = (creds_val == -1)
+                    ok, res_msg = database.create_redeem_code(code, creds_val if not is_lt else 0, max_uses=max_u, make_lifetime=is_lt, created_by=str(chat_id))
+                    clear_session(chat_id)
+                    if ok:
+                        val_txt = "♾️ Lifetime VIP" if is_lt else f"+{creds_val} Credits"
+                        send_message(
+                            chat_id,
+                            f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                            f"✅ <b>ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ ᴄʀᴇᴀᴛᴇᴅ!</b>\n\n"
+                            f"🎁  <b>ᴄᴏᴅᴇ:</b> <code>{code}</code>\n"
+                            f"💰  <b>ᴠᴀʟᴜᴇ:</b> <b>{val_txt}</b>\n"
+                            f"👥  <b>ᴍᴀx ᴜsᴇs:</b> <b>{max_u}</b>\n\n"
+                            f"<i>Users can claim via the Redeem Code button or <code>/redeem {code}</code></i>",
+                            reply_markup=get_admin_keyboard()
+                        )
+                    else:
+                        send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Failed to create code: {res_msg}", reply_markup=get_admin_keyboard())
+                except ValueError:
+                    send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Invalid numbers.\nUsage: <code>CODE CREDITS [MAX_USES]</code>\nExample: <code>FREE5 5 20</code>", reply_markup=get_cancel_keyboard())
+            else:
+                send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n❌ Please enter at least <code>CODE CREDITS</code> (e.g. <code>FREE5 5 20</code>)", reply_markup=get_cancel_keyboard())
+            return
+
+    if current_step == 'awaiting_redeem_code' or message_text.strip().startswith('/redeem'):
+        code_input = message_text.strip()
+        if code_input.startswith('/redeem'):
+            parts = code_input.split(None, 1)
+            code_input = parts[1].strip() if len(parts) >= 2 else ""
+        if not code_input:
+            set_session(chat_id, 'awaiting_redeem_code')
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n🎁 <i>Please enter the redeem code:</i>", reply_markup=get_cancel_keyboard())
+            return
+
+        ok, msg, creds, is_lt = database.claim_redeem_code(chat_id, code_input)
+        if ok:
+            val_txt = "♾️ Lifetime VIP" if is_lt else f"+{int(creds)} Credits"
+            clear_session(chat_id)
+            send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"🎉 <b>ᴄᴏᴅᴇ ʀᴇᴅᴇᴇᴍᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!</b>\n\n"
+                f"🎁  <b>ʀᴇᴡᴀʀᴅ:</b> <b>{val_txt}</b>\n\n"
+                f"{DIVIDER}\n"
+                f"<i>Enjoy downloading Aadhaar PDFs straight to Telegram!</i>",
+                reply_markup=get_welcome_inline_keyboard()
+            )
+        else:
+            send_message(chat_id, f"<b>{BOT_NAME}</b>\n{DIVIDER}\n{msg}", reply_markup=get_cancel_keyboard())
         return
 
     if current_step == 'admin_awaiting_broadcast' and is_admin(chat_id):
