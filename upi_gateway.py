@@ -106,8 +106,11 @@ class UPIGateway:
                     return True, data
                 return False, data
             return False, {"status": "pending", "paid": False}
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            logger.debug(f"Transient UPI gateway timeout on amount {amount}")
+            return False, {"status": "pending", "paid": False}
         except Exception as e:
-            logger.error(f"Error polling /check-payment/{amount}: {e}")
+            logger.warning(f"Error polling /check-payment/{amount}: {e}")
             return False, {"status": "error", "message": str(e)}
 
 gateway = UPIGateway()

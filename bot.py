@@ -410,19 +410,32 @@ def send_message(chat_id, text, reply_markup=None):
     payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
     if reply_markup:
         payload['reply_markup'] = reply_markup
-    try:
-        response = get_telegram_session().post(url, json=payload, timeout=10)
-        res = response.json()
-        if not res.get('ok'):
-            logger.error(f"Telegram sendMessage failed for chat {chat_id}: {res}")
-            if 'parse entities' in str(res.get('description', '')).lower():
-                payload['text'] = re.sub(r'<[^>]+>', '', text)
-                payload['parse_mode'] = None
-                return get_telegram_session().post(url, json=payload, timeout=10).json()
-        return res
-    except Exception as e:
-        logger.error(f"Error sending message: {e}")
-        return None
+    
+    for attempt in range(2):
+        try:
+            response = get_telegram_session().post(url, json=payload, timeout=12)
+            res = response.json()
+            if not res.get('ok'):
+                desc = str(res.get('description', '')).lower()
+                if 'blocked by the user' in desc or 'deactivated' in desc or 'chat not found' in desc:
+                    logger.debug(f"User {chat_id} unreachable: {desc}")
+                    return res
+                if 'parse entities' in desc:
+                    payload['text'] = re.sub(r'<[^>]+>', '', text)
+                    payload['parse_mode'] = None
+                    return get_telegram_session().post(url, json=payload, timeout=12).json()
+                logger.warning(f"Telegram sendMessage non-ok for {chat_id}: {res}")
+            return res
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
+            logger.warning(f"Network timeout sending to {chat_id}: {net_err}")
+            return None
+        except Exception as e:
+            logger.error(f"Error sending message to {chat_id}: {e}")
+            return None
+    return None
 
 def edit_message_text(chat_id, message_id, text, reply_markup=None):
     if not message_id:
@@ -455,9 +468,9 @@ def answer_callback_query(callback_query_id, text=None):
     if text:
         data['text'] = text
     try:
-        get_telegram_session().post(url, json=data, timeout=5)
+        get_telegram_session().post(url, json=data, timeout=6)
     except Exception as e:
-        logger.error(f"Error answering callback: {e}")
+        logger.debug(f"Transient callback query error: {e}")
 
 def set_message_reaction(chat_id, message_id=None, emoji="⚡"):
     """Telegram Bot API 7.0+ Message Reactions"""
